@@ -4,7 +4,7 @@
 window.SAMPLE_REPORTS = [
   {
     "id": "rpt_12_a1b2c3",
-    "repo": "owner/archicheck-demo",
+    "repo": "owner/target-repo",
     "pr": 12,
     "headSha": "a1b2c3d",
     "title": "로그인 버그 수정",
@@ -33,7 +33,7 @@ window.SAMPLE_REPORTS = [
   },
   {
     "id": "rpt_14_d4e5f6",
-    "repo": "owner/archicheck-demo",
+    "repo": "owner/target-repo",
     "pr": 14,
     "headSha": "d4e5f6a",
     "title": "사용자 조회 성능 개선",
@@ -69,7 +69,7 @@ window.SAMPLE_REPORTS = [
   },
   {
     "id": "rpt_15_0a9b8c",
-    "repo": "owner/archicheck-demo",
+    "repo": "owner/target-repo",
     "pr": 15,
     "headSha": "0a9b8c7",
     "title": "주문 API 추가",
@@ -82,7 +82,7 @@ window.SAMPLE_REPORTS = [
   },
   {
     "id": "rpt_11_77aa21",
-    "repo": "owner/archicheck-demo",
+    "repo": "owner/target-repo",
     "pr": 11,
     "headSha": "77aa21b",
     "title": "로그아웃 기능 추가",
@@ -113,7 +113,7 @@ window.SAMPLE_REPORTS = [
   },
   {
     "id": "rpt_10_c3c3c3",
-    "repo": "owner/archicheck-demo",
+    "repo": "owner/target-repo",
     "pr": 10,
     "headSha": "c3c3c3d",
     "title": "README 오타 수정",
@@ -126,7 +126,7 @@ window.SAMPLE_REPORTS = [
   },
   {
     "id": "rpt_9_ff0011",
-    "repo": "owner/archicheck-demo",
+    "repo": "owner/target-repo",
     "pr": 9,
     "headSha": "ff00112",
     "title": "빌드 설정 변경",

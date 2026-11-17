@@ -31,42 +31,61 @@ const api = {
 };
 
 async function getJson(url, options = {}) {
-  const headers = { ...(options.headers || {}), ...auth.header() };
-  const res = await fetch(url, { ...options, headers });
-  if (res.status === 401) {               // 비밀번호가 틀렸거나 없음 → 로그인 화면으로
-    auth.clear();
+  // 대시보드와 API가 같은 주소라 세션 쿠키는 브라우저가 자동으로 붙인다 (설계 문서 3.4)
+  const res = await fetch(url, { credentials: "same-origin", ...options });
+  if (res.status === 401) {               // 세션 없음 → 로그인 화면으로 (3.4 화면 ④)
     auth.goLogin();
-    throw new Error("비밀번호가 맞지 않습니다.");
+    throw new Error("로그인이 필요합니다.");
   }
   if (!res.ok) throw new Error(`서버가 ${res.status} 오류를 돌려줬습니다.`);
   return res.json();
 }
 
-// ===== 비밀번호 접속 (설계 문서 NFR-3, 5장: 대시보드는 기본 인증(비밀번호)으로 보호) =====
-// 샘플 모드: 아무 비밀번호나 입력하면 들어간다 (화면 개발용).
-// API 모드: 입력한 비밀번호를 HTTP Basic 인증 헤더로 서버에 보내고, 서버(③)가 맞는지 확인한다.
-const AUTH_KEY = "archicheck-password";
-const AUTH_USER = "archicheck";            // Basic 인증 사용자 이름 (③과 맞출 것)
+// ===== 로그인 (설계 문서 3.4 대시보드 인증: 로그인 API + 세션 쿠키) =====
+// API 모드: POST /api/login { password } → 200이면 서버가 세션 쿠키를 준다. 이후 API가 401이면 로그인 화면으로 보낸다.
+// 샘플 모드: 서버가 없으므로 아무 비밀번호나 통과시키고, 로그인 여부만 브라우저 탭에 기억한다.
+const SAMPLE_LOGIN_KEY = "archicheck-sample-login";
 const auth = {
-  get() { try { return sessionStorage.getItem(AUTH_KEY); } catch (_) { return null; } },
-  set(pw) { try { sessionStorage.setItem(AUTH_KEY, pw); } catch (_) {} },
-  clear() { try { sessionStorage.removeItem(AUTH_KEY); } catch (_) {} },
-  isLoggedIn() { return !!this.get(); },
-  header() {
-    const pw = this.get();
-    if (!pw || USE_SAMPLE) return {};
-    const raw = new TextEncoder().encode(`${AUTH_USER}:${pw}`);
-    return { Authorization: "Basic " + btoa(String.fromCharCode(...raw)) };
+  sampleLoggedIn() { try { return sessionStorage.getItem(SAMPLE_LOGIN_KEY) === "1"; } catch (_) { return true; } },
+  async login(password) {
+    if (USE_SAMPLE) {
+      try { sessionStorage.setItem(SAMPLE_LOGIN_KEY, "1"); } catch (_) {}
+      return;
+    }
+    let res;
+    try {
+      res = await fetch(`${API_BASE}/api/login`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+    } catch (_) {
+      throw new Error("서버에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요.");
+    }
+    if (res.status === 401) throw new Error("비밀번호가 맞지 않습니다. 다시 확인하세요.");
+    if (!res.ok) throw new Error(`서버에 연결하지 못했습니다. (${res.status})`);
   },
+  async logout() {
+    if (USE_SAMPLE) {
+      try { sessionStorage.removeItem(SAMPLE_LOGIN_KEY); } catch (_) {}
+      return;
+    }
+    try {
+      await fetch(`${API_BASE}/api/logout`, { method: "POST", credentials: "same-origin" });
+    } catch (_) {}   // 서버에 닿지 않아도 로그인 화면으로는 보낸다
+  },
+  // 원래 보던 주소를 기억해 두고 로그인 화면으로 (로그인 후 그 주소로 돌아간다)
   goLogin() {
     const here = location.pathname.split("/").pop() + location.search;
     location.replace(`login.html?next=${encodeURIComponent(here)}`);
   },
 };
 
-// 로그인 안 한 상태로 대시보드 화면에 들어오면 로그인 화면으로 보낸다
+// 샘플 모드에서만 화면을 열기 전에 로그인 여부를 확인한다.
+// API 모드에서는 세션 쿠키를 화면에서 읽을 수 없으므로(HttpOnly), API가 401을 줄 때 로그인 화면으로 보낸다.
 function requireLogin() {
-  if (auth.isLoggedIn()) return true;
+  if (!USE_SAMPLE || auth.sampleLoggedIn()) return true;
   auth.goLogin();
   return false;
 }
@@ -78,7 +97,11 @@ function addLogoutButton() {
   btn.type = "button";
   btn.className = "theme-btn";
   btn.textContent = "로그아웃";
-  btn.addEventListener("click", () => { auth.clear(); location.href = "login.html"; });
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    await auth.logout();
+    location.href = "login.html";
+  });
   bar.appendChild(btn);
 }
 
@@ -96,7 +119,6 @@ function renderLogin() {
   if (USE_SAMPLE) {
     document.getElementById("login-note").textContent = "샘플 모드에서는 아무 비밀번호나 통과합니다.";
   }
-  if (auth.isLoggedIn()) { location.replace(safeNext); return; }
 
   toggle.addEventListener("click", () => {
     const show = input.type === "password";
@@ -107,8 +129,8 @@ function renderLogin() {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const pw = input.value.trim();
-    if (!pw) {
+    const pw = input.value;
+    if (!pw.trim()) {
       error.textContent = "비밀번호를 입력하세요.";
       input.setAttribute("aria-invalid", "true");
       input.focus();
@@ -116,22 +138,15 @@ function renderLogin() {
     }
     submit.disabled = true;
     submit.textContent = "확인하는 중…";
-    auth.set(pw);
-    if (!USE_SAMPLE) {
-      // 서버에 한 번 물어봐서 비밀번호가 맞는지 확인
-      try {
-        const res = await fetch(`${API_BASE}/api/reports`, { headers: auth.header() });
-        if (res.status === 401) throw new Error("비밀번호가 맞지 않습니다. 다시 확인하세요.");
-        if (!res.ok) throw new Error(`서버에 연결하지 못했습니다. (${res.status})`);
-      } catch (err) {
-        auth.clear();
-        error.textContent = err.message.startsWith("비밀번호") || err.message.startsWith("서버")
-          ? err.message : "서버에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요.";
-        input.setAttribute("aria-invalid", "true");
-        submit.disabled = false;
-        submit.textContent = "접속하기";
-        return;
-      }
+    try {
+      await auth.login(pw);
+    } catch (err) {
+      error.textContent = err.message;
+      input.setAttribute("aria-invalid", "true");
+      submit.disabled = false;
+      submit.textContent = "접속하기";
+      input.focus();
+      return;
     }
     location.replace(safeNext);
   });
