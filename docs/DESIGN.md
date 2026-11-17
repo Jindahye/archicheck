@@ -13,6 +13,7 @@ Nov 16, 2026 · @dahye
 | --- | --- | --- | --- |
 | v0.1 | 2026.11.16 | 진다혜 | 최초 작성 (요구사항, 아키텍처, 상세 설계 초안) |
 | v0.2 | 2026.11.17 | 진다혜 | 3.6 디렉터리 구조 상세화, 담당 역할 표기 |
+| v0.3 | 2026.11.17 | 진다혜 | 3.7 역할 분담 추가, 2.4 배포 구성 추가, Webhook 비동기 처리(3.1), 대시보드 로그인 API·인증 규칙(3.4), 설계 문서 탐색 담당 ③ → ② 이동 |
 
 ## 1. 요구사항
 
@@ -160,6 +161,27 @@ flowchart TB
 | 연동 | GitHub Webhook, GitHub REST API |  |
 | 대체안 | GitHub Actions | NCP 서버 연동이 막히면 Actions에서 분석 실행 |
 
+### 2.4 배포 구성
+
+담당: ① (NCP 서버), ② (GitHub 쪽 설정)
+
+| 항목 | 내용 |
+| --- | --- |
+| 서버 | NCP 서버 1대에서 `uvicorn server.main:app` 실행. 서버, 대시보드 화면 파일, SQLite 파일이 모두 이 서버에 있다 |
+| 공개 주소 | GitHub Webhook을 받을 수 있도록 외부에서 접근 가능한 주소를 둔다. 이 주소를 `PUBLIC_BASE_URL`에 넣는다 |
+| Webhook 등록 | ②가 대상 레포에 Webhook을 등록한다. URL은 `{PUBLIC_BASE_URL}/webhook/github`, 이벤트는 `pull_request`, secret은 `GITHUB_WEBHOOK_SECRET`과 같은 값 |
+| 환경 변수 | 서버의 `.env`에 둔다. 목록은 아래 표 |
+| Node.js | `DiagramValidator`가 mermaid-cli를 쓰기로 하면 서버에 Node.js를 설치한다 (3.7 ⑤ 확정 사항) |
+
+| 환경 변수 | 설명 | 사용하는 곳 |
+| --- | --- | --- |
+| `ANTHROPIC_API_KEY` | Claude API 키 | ① `server/analyzer/` |
+| `GITHUB_TOKEN` | GitHub API 토큰 (권한은 5장) | ② `server/github/` |
+| `GITHUB_WEBHOOK_SECRET` | Webhook 서명 검증용 secret | ② `server/github/` |
+| `DASHBOARD_PASSWORD` | 대시보드 접속 비밀번호 (팀 공용 1개) | ③ 로그인 API |
+| `SESSION_SECRET` | 로그인 세션 쿠키 서명 키 (임의의 긴 문자열) | ③ 세션 미들웨어 |
+| `PUBLIC_BASE_URL` | 서버 공개 주소. PR 코멘트의 대시보드 링크를 만들 때 쓴다 (예: `http://<서버 IP>:8000`) | ② PR 코멘트 |
+
 ## 3. 상세 설계
 
 ### 3.1 처리 흐름 (시퀀스 다이어그램)
@@ -175,19 +197,29 @@ sequenceDiagram
     Dev->>GH: PR 생성
     GH->>S: Webhook (pull_request 이벤트)
     S->>S: 서명 검증
+    S->>DB: 리포트 생성 (status: analyzing)
+    S-->>GH: 202 Accepted (즉시 응답)
+    Note over S: 이후는 백그라운드 작업
     S->>GH: diff, 커밋 메시지 조회
     GH-->>S: 변경 데이터
     S->>GH: 설계 문서 탐색 (.archicheck.yml → 자동 탐색, 3.5)
     GH-->>S: 설계 문서
     S->>C: 설계 정합성 분석 요청
     C-->>S: 불일치 항목 목록
-    S->>DB: 리포트 저장
+    S->>DB: 리포트 저장 (status: done)
     S->>GH: PR 코멘트 게시 (요약 + 사용한 설계 문서 + 대시보드 링크)
+    Dev->>S: 대시보드 로그인 (비밀번호)
+    S-->>Dev: 세션 쿠키
     Dev->>S: 대시보드에서 수정 방향 선택
     S->>C: 수정안 생성 요청 (코드 수정 / 문서 개정)
     C-->>S: 수정안 (diff 또는 문서 문구 + Mermaid)
     S-->>Dev: 수정안 표시
 ```
+
+- **즉시 응답:** GitHub는 Webhook 응답을 10초까지만 기다린다. 서버는 서명 검증과 리포트 생성(`analyzing`)까지만 하고 바로 `202`로 응답한다. 문서 탐색, 분석, 저장, 코멘트 게시는 백그라운드 작업(FastAPI `BackgroundTasks`)으로 실행한다.
+- **처리 순서 담당:** 위 백그라운드 흐름은 `WebhookHandler`(②)가 차례로 호출해 엮는다. 각 단계 모듈은 3.7의 담당자가 만든다.
+- **실패 처리:** 백그라운드 작업 중 오류가 나면 리포트 `status`를 `failed`로 바꾸고, PR에 "분석 실패" 코멘트를 단다.
+- **같은 PR 재분석:** PR에 새 커밋이 올라오면(`synchronize` 이벤트) 새 `headSha`로 리포트를 하나 더 만든다. 이전 리포트는 이력으로 남긴다.
 
 ### 3.2 서버 모듈 구조 (클래스 다이어그램)
 
@@ -196,6 +228,7 @@ classDiagram
     class WebhookHandler {
         +receive(request)
         -verifySignature(request) bool
+        -runAnalysis(event)
     }
     class GitHubClient {
         +getDiff(pr) Diff
@@ -225,6 +258,8 @@ classDiagram
         +list() Report[]
     }
     class DashboardAPI {
+        +login(password)
+        +logout()
         +listReports()
         +getReport(id)
         +requestFix(issueId, direction)
@@ -243,15 +278,16 @@ classDiagram
 - 관계는 모두 의존(점선 화살표): 다른 모듈을 객체로 소유하지 않고 호출만 한다.
 - 설계 원칙: Claude API 호출은 `ConformanceAnalyzer`와 `FixGenerator`에서만 한다.
 - 설계 원칙: GitHub API 호출은 `GitHubClient`에서만 한다.
+- `WebhookHandler.runAnalysis`는 3.1의 백그라운드 흐름(탐색 → 분석 → 저장 → 코멘트)을 실행한다.
 
 ### 3.3 리포트 데이터 형식 (JSON)
 
-서버와 대시보드를 연결하는 기준 형식이다. 필드를 추가·변경할 때는 팀 전체에 공유하고 이 문서를 먼저 고친다.
+서버와 대시보드를 연결하는 기준 형식이다. 형식과 예시 파일(`samples/report.json`)은 ①이 관리한다. 필드를 추가·변경하려면 ①과 먼저 협의하고, 이 문서와 예시 파일을 먼저 고친 뒤 구현한다.
 
 ```json
 {
   "id": "rpt_12_a1b2c3",
-  "repo": "owner/archicheck-demo",
+  "repo": "owner/target-repo",
   "pr": 12,
   "headSha": "a1b2c3d",
   "title": "로그인 버그 수정",
@@ -292,16 +328,28 @@ classDiagram
 
 ### 3.4 서버 API
 
-| 메서드 | 경로 | 설명 |
-| --- | --- | --- |
-| POST | `/webhook/github` | GitHub Webhook 수신 |
-| GET | `/api/reports` | 분석 이력 목록 |
-| GET | `/api/reports/{id}` | 리포트 상세 |
-| POST | `/api/reports/{id}/issues/{issueId}/fix` | 수정 방향 선택 및 수정안 생성. 요청 본문: `{ "direction": "code" }` 또는 `{ "direction": "doc" }` |
+| 메서드 | 경로 | 인증 | 설명 |
+| --- | --- | --- | --- |
+| GET | `/health` | 없음 | 서버 상태 확인. `{ "status": "ok" }` |
+| POST | `/webhook/github` | 서명 검증 | GitHub Webhook 수신. 서명이 틀리면 `401`, 정상이면 `202` 후 백그라운드 분석 (3.1) |
+| POST | `/api/login` | 없음 | 요청 본문 `{ "password": "..." }`. 맞으면 `200`과 세션 쿠키, 틀리면 `401` |
+| POST | `/api/logout` | 세션 | 세션 쿠키 삭제 |
+| GET | `/api/reports` | 세션 | 분석 이력 목록 |
+| GET | `/api/reports/{id}` | 세션 | 리포트 상세 |
+| POST | `/api/reports/{id}/issues/{issueId}/fix` | 세션 | 수정 방향 선택 및 수정안 생성. 요청 본문: `{ "direction": "code" }` 또는 `{ "direction": "doc" }` |
+
+#### 대시보드 인증
+
+팀 공용 비밀번호 1개로 접속하는 **로그인 API + 세션 쿠키** 방식을 쓴다.
+
+- **선택 이유:** 대시보드 화면은 FastAPI가 같은 주소에서 제공하므로(2.1) 쿠키가 모든 요청에 자동으로 붙는다. PR 코멘트의 리포트 링크로 바로 들어와도, 로그인 후 원래 보던 페이지로 돌아갈 수 있다. HTTP 기본 인증은 로그인 화면을 만들 수 없고 로그아웃이 안 돼서 쓰지 않는다.
+- **서버 (③):** Starlette `SessionMiddleware`(`SESSION_SECRET`으로 서명)를 쓴다. 쿠키는 `HttpOnly`, `SameSite=Lax`로 설정한다. 비밀번호는 `hmac.compare_digest`로 `DASHBOARD_PASSWORD`와 비교한다. 세션이 없으면 표의 "세션" 항목은 `401`을 돌려준다.
+- **화면 (④):** API가 `401`을 주면 로그인 화면으로 보낸다. 이때 원래 주소를 기억해 두었다가 로그인 성공 후 그 주소로 돌아간다.
+- **인증 제외:** `/health`, `/webhook/github`(서명 검증으로 대신), `/api/login`, 로그인 화면 파일.
 
 ### 3.5 설계 문서 탐색 규칙
 
-설계 문서 이름과 위치는 레포마다 다르므로 아래 순서로 찾는다.
+담당: ② (`DesignDocLocator`). 설계 문서 이름과 위치는 레포마다 다르므로 아래 순서로 찾는다.
 
 1. **설정 파일:** 대상 레포 루트에 `.archicheck.yml`이 있으면 지정된 경로를 사용한다.
 2. **자동 탐색:** 설정 파일이 없으면 파일 이름에 `design`, `architecture`, `arch`, `설계`, `아키텍처`가 포함되거나, 본문에 Mermaid 코드 블록이 포함된 `.md` 파일을 찾는다.
@@ -320,37 +368,65 @@ design_docs:
 ```
 archicheck/
 ├─ docs/
-│  └─ DESIGN.md          이 문서
+│  └─ DESIGN.md          이 문서                                       ①
 ├─ server/
-│  ├─ main.py            FastAPI 앱 시작점                       ③
-│  ├─ analyzer/          ConformanceAnalyzer, FixGenerator       ①
-│  ├─ github/            WebhookHandler, GitHubClient            ②
-│  ├─ api/               DashboardAPI, DesignDocLocator          ③
-│  ├─ store/             ReportStore (SQLite)                    ③
-│  └─ diagram/           DiagramValidator                        ⑤
-├─ dashboard/            분석 이력·리포트 상세 화면 ④, 수정안 패널 ⑤
+│  ├─ main.py            FastAPI 앱 시작점, 세션 미들웨어               ③
+│  ├─ analyzer/          ConformanceAnalyzer, FixGenerator             ①
+│  ├─ github/            WebhookHandler, GitHubClient, DesignDocLocator ②
+│  ├─ api/               DashboardAPI (로그인 포함)                     ③
+│  ├─ store/             ReportStore (SQLite)                          ③
+│  └─ diagram/           DiagramValidator                              ⑤
+├─ dashboard/            분석 이력·리포트 상세·로그인 화면 ④, 수정안 패널 ⑤
 ├─ prompts/              Claude 프롬프트 ①, PR 코멘트 템플릿 ⑤
 ├─ samples/
-│  └─ report.json        3.3 형식의 예시 리포트 (개발용 가짜 데이터)
-├─ requirements.txt
-├─ .env.example          환경 변수 예시 (실제 키는 .env에 두고 올리지 않음)
-├─ .gitignore
-├─ CLAUDE.md             Claude Code 작업 규칙
-└─ README.md
+│  └─ report.json        3.3 형식의 예시 리포트 (개발용 가짜 데이터)    ①
+├─ requirements.txt                                                    ①
+├─ .env.example          환경 변수 예시 (실제 키는 .env에 두고 올리지 않음) ①
+├─ .gitignore                                                          ①
+├─ CLAUDE.md             Claude Code 작업 규칙                          ①
+└─ README.md                                                           ①
 ```
 
-- 오른쪽 번호는 담당 역할(① AI 분석, ② GitHub 연동·배포, ③ 서버 API·저장, ④ 대시보드 화면, ⑤ 시각화·발표)이다.
-- 각자 자기 폴더만 수정하고, 다른 폴더를 고쳐야 하면 해당 담당자와 먼저 이야기한다.
+- 오른쪽 번호는 담당 역할이다. 역할별 담당자와 업무는 3.7을 따른다.
+- 각자 자기 폴더만 수정한다. 다른 폴더를 고쳐야 하면 해당 담당자와 먼저 이야기한다.
+- 루트 파일(`requirements.txt`, `.env.example` 등)에 패키지나 환경 변수를 추가해야 하면 ①에게 요청하거나, PR에 함께 올려 ①의 리뷰를 받는다.
+
+### 3.7 역할 분담
+
+| 번호 | 담당자 | 역할 | 담당 업무 | 담당 파일·폴더 |
+| --- | --- | --- | --- | --- |
+| ① | 진다혜 | 팀장·AI 분석 | 정합성 분석·수정안 생성(Claude 호출, 프롬프트), NFR-5 다이어그램 재생성 루프, 리포트 JSON 형식 관리(3.3), PR 리뷰·Merge, 문서 관리, NCP 서버 배포(2.4) | `server/analyzer/`, `prompts/`(Claude 프롬프트), `samples/`, `docs/`, 루트 파일 |
+| ② | 신유찬 | GitHub 연동 | Webhook 수신·서명 검증, GitHub API(diff·커밋 메시지·파일 조회, PR 코멘트 게시), 설계 문서 탐색(3.5), 분석 처리 순서 연결과 백그라운드 실행(3.1), 대상 레포 Webhook 등록·토큰 발급(2.4), E2E 테스트(4장), (확장) FR-11 Push 커밋 코멘트 | `server/github/` |
+| ③ | 윤정은 | 서버 API·저장 | FastAPI 기본 구조, 대시보드 화면 파일 제공, SQLite 저장, 대시보드용 API(3.4), 로그인·세션 인증(서버 쪽) | `server/main.py`, `server/api/`, `server/store/` |
+| ④ | 주성빈 | 대시보드 화면 | 분석 이력·리포트 상세 화면, 서버 API 연결, 로그인 화면과 `401` 처리 | `dashboard/` (수정안 패널 제외) |
+| ⑤ | 장경호 | 시각화·발표 | 수정안 패널(diff2html로 코드 diff, mermaid.js로 다이어그램 표시), Mermaid 문법 검증, PR 코멘트 템플릿, 시연·발표 자료 | `server/diagram/`, `dashboard/` 수정안 패널, `prompts/`(PR 코멘트 템플릿) |
+
+역할 사이의 연결 지점:
+
+| 연결 | 내용 | 기준 |
+| --- | --- | --- |
+| ② → ①③ | `WebhookHandler`가 `DesignDocLocator`(②) → `ConformanceAnalyzer`(①) → `ReportStore`(③) 순서로 호출하고 코멘트를 게시한다 | 3.1, 3.2 |
+| ① ↔ ③④⑤ | 리포트 JSON 형식. ④⑤는 서버 완성 전에 `samples/report.json`으로 화면을 먼저 만든다 | 3.3 |
+| ③ ↔ ④ | 대시보드 API와 로그인·`401` 처리 | 3.4 |
+| ① → ⑤ | `FixGenerator`가 `DiagramValidator`로 Mermaid를 검증하고, 실패하면 오류 메시지를 넣어 재생성한다 (최대 2회) | NFR-5 |
+| ② ← ⑤ | ②는 ⑤의 PR 코멘트 템플릿에 리포트 값과 대시보드 링크(`PUBLIC_BASE_URL`)를 채워 게시한다 | 2.4 |
+
+정해야 할 사항:
+
+- **⑤ Mermaid 검증 방식 (Day 2까지 확정):** Mermaid 파서는 JavaScript로만 제공된다. 서버에서 mermaid-cli(Node.js)를 호출할지, 다른 방법을 쓸지 정한다. Node.js가 필요하면 ①이 NCP 서버에 설치한다.
 
 ## 4. 테스트
 
-Day 5에 시연 시나리오(1.5의 A, B) 기준으로 작성 예정.
+담당: ② (E2E 테스트), 각 담당자 (자기 모듈 단위 테스트)
+
+Day 5에 시연 시나리오(1.5의 A, B) 기준으로 작성 예정. 실제 대상 레포에 PR을 올려 Webhook 수신부터 수정안 표시까지 전체 흐름을 확인한다.
 
 ## 5. 보안 및 한계
 
 - API 키·GitHub 토큰은 `.env`에 보관하고 `.gitignore`에 추가한다.
-- GitHub 토큰은 대상 레포 하나, PR 코멘트 권한만 부여한다.
+- GitHub 토큰은 대상 레포 하나에만 최소 권한을 준다: Contents 읽기(설계 문서·파일 조회), Pull requests 읽기·쓰기(diff 조회, PR 코멘트 게시).
 - Webhook secret을 설정하고 서버에서 서명(`X-Hub-Signature-256`)을 검증한다.
-- 대시보드는 기본 인증(비밀번호)으로 보호한다.
+- 대시보드는 비밀번호 로그인과 세션 쿠키로 보호한다 (3.4).
+- 서버에 HTTPS가 없으면 로그인 비밀번호와 세션 쿠키가 암호화 없이 전송된다. 시연용 한계로 두고, 비밀번호는 다른 곳에 쓰지 않는 값으로 정한다.
 - 분석을 위해 코드가 Claude API로 전송되므로, 민감한 코드에는 별도 검토가 필요하다.
 - AI 분석 결과는 틀릴 수 있으므로 수정안은 제안까지만 하고 사람이 확인 후 반영한다.
