@@ -1,0 +1,29 @@
+{
+  "id": "rpt_12_a1b2c3",
+  "repo": "owner/archicheck-demo",
+  "pr": 12,
+  "headSha": "a1b2c3d",
+  "title": "로그인 버그 수정",
+  "createdAt": "2026-11-18T14:20:00+09:00",
+  "status": "done",
+  "designDocs": ["docs/architecture.md"],
+  "summary": {
+    "commitMessage": "로그인 버그 수정",
+    "actualChanges": ["로그인 실패 처리 수정", "세션 저장 방식 변경(메모리 → DB)"],
+    "unmentionedChanges": 1
+  },
+  "impact": [
+    { "file": "src/auth/AuthController.java", "symbol": "refresh()", "reason": "변경된 세션 로직과 맞지 않음" }
+  ],
+  "issues": [
+    {
+      "id": "iss_1",
+      "title": "인증 흐름 문서에 세션 DB 저장 단계 없음",
+      "designRef": "docs/architecture.md#인증 흐름",
+      "codeRef": "src/auth/SessionStore.java",
+      "detail": "코드는 세션을 DB에 저장하지만 시퀀스 다이어그램에는 해당 단계가 없음",
+      "direction": null,
+      "fix": null
+    }
+  ]
+}

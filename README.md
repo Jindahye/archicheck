@@ -47,7 +47,15 @@ flowchart LR
 
 ## 실행 방법
 
-추후 작성 예정
+```bash
+python -m venv .venv
+.venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env            # 값 채우기
+uvicorn server.main:app --reload
+```
+
+`http://localhost:8000/health`에서 `{"status":"ok"}`가 나오면 정상입니다.
 
 ## 협업 규칙
 
