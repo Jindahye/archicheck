@@ -1,1 +1,1 @@
-"""GitHub 연동: WebhookHandler, GitHubClient (담당 ②)."""
+"""GitHub 연동: WebhookHandler, GitHubClient, DesignDocLocator (담당 ②)."""

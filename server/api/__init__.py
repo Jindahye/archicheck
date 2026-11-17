@@ -1,1 +1,1 @@
-"""서버 API: DashboardAPI, DesignDocLocator (담당 ③)."""
+"""서버 API: DashboardAPI (담당 ③)."""
