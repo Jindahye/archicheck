@@ -1,6 +1,6 @@
 {
   "id": "rpt_12_a1b2c3",
-  "repo": "owner/archicheck-demo",
+  "repo": "owner/target-repo",
   "pr": 12,
   "headSha": "a1b2c3d",
   "title": "로그인 버그 수정",
