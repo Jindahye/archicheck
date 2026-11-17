@@ -1,5 +1,6 @@
 # ArchiCheck 설계 문서
 
+Nov 16, 2026 · @dahye
 
 > 코드가 바뀌면 설계 문서·다이어그램과 어긋난 부분을 찾아, 코드 수정 또는 문서 개정안을 제안하는 AI 에이전트
 
@@ -11,6 +12,7 @@
 | 버전 | 날짜 | 작성자 | 변경 내용 |
 | --- | --- | --- | --- |
 | v0.1 | 2026.11.16 | 진다혜 | 최초 작성 (요구사항, 아키텍처, 상세 설계 초안) |
+| v0.2 | 2026.11.17 | 진다혜 | 3.6 디렉터리 구조 상세화, 담당 역할 표기 |
 
 ## 1. 요구사항
 
@@ -318,13 +320,27 @@ design_docs:
 ```
 archicheck/
 ├─ docs/
-│  └─ DESIGN.md        이 문서 (ArchiCheck 자체 설계 문서)
-├─ server/             FastAPI 서버 (Webhook, 분석, API)
-├─ dashboard/          HTML/JS 화면 (서버가 함께 제공)
-├─ prompts/            Claude 프롬프트
-├─ .env.example        환경 변수 예시 (실제 키는 .env에 두고 GitHub에 올리지 않음)
+│  └─ DESIGN.md          이 문서
+├─ server/
+│  ├─ main.py            FastAPI 앱 시작점                       ③
+│  ├─ analyzer/          ConformanceAnalyzer, FixGenerator       ①
+│  ├─ github/            WebhookHandler, GitHubClient            ②
+│  ├─ api/               DashboardAPI, DesignDocLocator          ③
+│  ├─ store/             ReportStore (SQLite)                    ③
+│  └─ diagram/           DiagramValidator                        ⑤
+├─ dashboard/            분석 이력·리포트 상세 화면 ④, 수정안 패널 ⑤
+├─ prompts/              Claude 프롬프트 ①, PR 코멘트 템플릿 ⑤
+├─ samples/
+│  └─ report.json        3.3 형식의 예시 리포트 (개발용 가짜 데이터)
+├─ requirements.txt
+├─ .env.example          환경 변수 예시 (실제 키는 .env에 두고 올리지 않음)
+├─ .gitignore
+├─ CLAUDE.md             Claude Code 작업 규칙
 └─ README.md
 ```
+
+- 오른쪽 번호는 담당 역할(① AI 분석, ② GitHub 연동·배포, ③ 서버 API·저장, ④ 대시보드 화면, ⑤ 시각화·발표)이다.
+- 각자 자기 폴더만 수정하고, 다른 폴더를 고쳐야 하면 해당 담당자와 먼저 이야기한다.
 
 ## 4. 테스트
 
