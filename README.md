@@ -65,13 +65,15 @@ uvicorn server.main:app --reload
 - 작업 전 `git pull`로 최신 코드를 받는다.
 - `.env` 파일은 올리지 않는다.
 - 설계와 다르게 구현할 때는 [설계 문서](docs/DESIGN.md)를 먼저 고친다.
+- 자기 담당 폴더만 수정한다. 담당 폴더는 [설계 문서 3.6·3.7](docs/DESIGN.md#37-역할-분담)을 따른다.
+- PR은 팀장(①)이 리뷰한 뒤 Merge한다. 리뷰가 몰리지 않도록 PR은 작게 나눠 하루 1회 이상 올린다.
 
 ## 팀원
 
-| 이름 | 역할 | GitHub |
-|---|---|---|
-| 진다혜 | 팀장 | [Jindahye](https://github.com/Jindahye) |
-| 신유찬 | | [a01050508080-blip](https://github.com/a01050508080-blip) |
-| 장경호 | | [OVenrswrll](https://github.com/OVenrswrll) |
-| 주성빈 | | [AP6258](https://github.com/AP6258) |
-| 윤정은 | | [wjdsl](https://github.com/wjdsl) |
+| 번호 | 이름 | 역할 | GitHub |
+|---|---|---|---|
+| ① | 진다혜 | 팀장·AI 분석 | [Jindahye](https://github.com/Jindahye) |
+| ② | 신유찬 | GitHub 연동 | [a01050508080-blip](https://github.com/a01050508080-blip) |
+| ③ | 윤정은 | 서버 API·저장 | [wjdsl](https://github.com/wjdsl) |
+| ④ | 주성빈 | 대시보드 화면 | [AP6258](https://github.com/AP6258) |
+| ⑤ | 장경호 | 시각화·발표 | [OVenrswrll](https://github.com/OVenrswrll) |
