@@ -199,8 +199,8 @@ function githubLink(repo, sha, ref) {
 // 리포트의 불일치 집계
 function issueStats(r) {
   const issues = r.issues || [];
-  const total = r.issueCount ?? issues.length;
-  const pending = r.pendingCount ?? issues.filter((i) => !i.direction).length;
+  const total = issues.length;
+  const pending = issues.filter((i) => !i.direction).length;
   const code = issues.filter((i) => i.direction === "code").length;
   const doc = issues.filter((i) => i.direction === "doc").length;
   return { total, pending, code, doc };
