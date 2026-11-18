@@ -73,7 +73,7 @@ uvicorn server.main:app --reload
 | 번호 | 이름 | 역할 | GitHub |
 |---|---|---|---|
 | ① | 진다혜 | 팀장·AI 분석 | [Jindahye](https://github.com/Jindahye) |
-| ② | 신유찬 | | [yc-shin0](https://github.com/yc-shin0) |
+| ② | 신유찬 | GitHub 연동 | [yc-shin0](https://github.com/yc-shin0) |
 | ③ | 윤정은 | 서버 API·저장 | [wjdsl](https://github.com/wjdsl) |
 | ④ | 주성빈 | 대시보드 화면 | [AP6258](https://github.com/AP6258) |
 | ⑤ | 장경호 | 시각화·발표 | [OVenrswrll](https://github.com/OVenrswrll) |
