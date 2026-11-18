@@ -1,6 +1,5 @@
 # ArchiCheck 설계 문서
 
-Nov 16, 2026 · @dahye
 
 > 코드가 바뀌면 설계 문서·다이어그램과 어긋난 부분을 찾아, 코드 수정 또는 문서 개정안을 제안하는 AI 에이전트
 
@@ -279,6 +278,10 @@ classDiagram
 - 설계 원칙: Claude API 호출은 `ConformanceAnalyzer`와 `FixGenerator`에서만 한다.
 - 설계 원칙: GitHub API 호출은 `GitHubClient`에서만 한다.
 - `WebhookHandler.runAnalysis`는 3.1의 백그라운드 흐름(탐색 → 분석 → 저장 → 코멘트)을 실행한다.
+- `ConformanceAnalyzer.analyze(diff, designDocs, commits)`의 입출력:
+  - 입력: `diff`는 PR의 unified diff 텍스트, `designDocs`는 `[{ "path": "...", "content": "..." }]`(`DesignDocLocator.locate` 결과), `commits`는 커밋 메시지 문자열 목록.
+  - 반환: 3.3 리포트 중 분석 필드 `designDocs`, `summary`, `impact`, `issues`만 담은 dict. `issues[].id`는 `iss_1`부터 붙이고 `direction`, `fix`는 `null`이다. 나머지 필드(`id`, `repo`, `pr`, `headSha`, `title`, `createdAt`, `status`)는 `WebhookHandler`가 채워 합친다.
+  - 실패하면 `AnalysisError`를 던진다. `WebhookHandler`는 이를 받아 리포트 `status`를 `failed`로 바꾼다 (3.1 실패 처리).
 
 ### 3.3 리포트 데이터 형식 (JSON)
 
