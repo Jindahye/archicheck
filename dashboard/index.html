@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ArchiCheck</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="style.css?v=5">
+</head>
+<body data-page="list">
+  <header class="topbar">
+    <a href="index.html" class="logo"><span class="logo-mark" aria-hidden="true"></span>ArchiCheck</a>
+    <nav><a href="index.html" aria-current="page">분석 이력</a></nav>
+    <span class="spacer"></span>
+    <span class="mode-badge" id="mode-badge"></span>
+    <button class="theme-btn" id="theme-btn" type="button">테마 전환</button>
+  </header>
+
+  <main class="container">
+    <div class="page-head">
+      <h1>분석 이력</h1>
+      <p class="muted">PR마다 설계 문서와 코드 변경을 비교한 결과입니다. 결정 대기 항목이 있는 PR부터 확인하세요.</p>
+      <p class="refresh-note" id="refresh-note" aria-live="polite"></p>
+    </div>
+
+    <section class="card summary" id="summary" aria-label="요약"></section>
+
+    <div class="filters" id="filters" role="group" aria-label="상태로 거르기"></div>
+
+    <section class="card reports" aria-label="분석한 PR 목록">
+      <div class="report-row head" aria-hidden="true">
+        <span></span><span>PR</span><span>제목</span><span>상태</span><span>불일치</span><span style="text-align:right">분석 시각</span>
+      </div>
+      <div id="report-rows"><p class="empty">불러오는 중…</p></div>
+    </section>
+  </main>
+
+  <script src="sample-data.js"></script>
+  <script src="app.js?v=5"></script>
+</body>
+</html>

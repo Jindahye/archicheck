@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ArchiCheck 리포트</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="style.css?v=5">
+</head>
+<body data-page="report">
+  <header class="topbar">
+    <a href="index.html" class="logo"><span class="logo-mark" aria-hidden="true"></span>ArchiCheck</a>
+    <nav><a href="index.html">분석 이력</a></nav>
+    <span class="spacer"></span>
+    <span class="mode-badge" id="mode-badge"></span>
+    <button class="theme-btn" id="theme-btn" type="button">테마 전환</button>
+  </header>
+
+  <main class="container" id="report-root">
+    <p class="empty">불러오는 중…</p>
+  </main>
+
+  <script src="sample-data.js"></script>
+  <script src="app.js?v=5"></script>
+</body>
+</html>
