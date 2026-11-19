@@ -1,21 +1,23 @@
 """ArchiCheck FastAPI 앱 시작점 (DESIGN.md 3.6: 앱 시작점, 세션 미들웨어)."""
-import importlib
-import logging
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from server.api.dashboard_api import router as dashboard_router
+from server.github.webhook_handler import router as webhook_router
 
 load_dotenv()
-
-log = logging.getLogger("archicheck.main")
 
 _session_secret = os.environ.get("SESSION_SECRET")
 if not _session_secret:
     raise RuntimeError("SESSION_SECRET 환경 변수가 필요합니다 (DESIGN.md 2.4). .env에 설정하세요.")
+
+# 대시보드 화면 파일 폴더 (DESIGN.md 3.6 dashboard/). 실행 위치와 상관없이 레포 루트 기준으로 찾는다.
+DASHBOARD_DIR = Path(__file__).resolve().parent.parent / "dashboard"
 
 app = FastAPI(title="ArchiCheck")
 
@@ -30,33 +32,16 @@ app.add_middleware(
 )
 
 app.include_router(dashboard_router)
-
-
-def include_webhook_router(target: FastAPI) -> bool:
-    """GitHub Webhook 라우터(POST /webhook/github, DESIGN.md 3.4)를 연결한다.
-
-    라우터는 ②의 server/github/webhook_handler.py가 만든다. 그 모듈에 router가 아직 없는
-    (스텁 상태인) 동안에는 연결을 건너뛰고 경고를 남긴다. 그래야 ②의 구현이 main에 들어오기
-    전에도 서버가 뜨고, 들어온 뒤에는 이 코드를 고치지 않아도 자동으로 연결된다.
-
-    모듈을 불러오다 실패하는 진짜 오류(패키지 미설치 등)는 숨기지 않고 그대로 올려 보낸다.
-    연결했으면 True, 건너뛰었으면 False.
-    """
-    module = importlib.import_module("server.github.webhook_handler")
-    router = getattr(module, "router", None)
-    if router is None:
-        log.warning(
-            "server.github.webhook_handler에 router가 없어 POST /webhook/github을 연결하지 못했습니다. "
-            "GitHub Webhook을 받을 수 없습니다."
-        )
-        return False
-    target.include_router(router)
-    return True
-
-
-include_webhook_router(app)
+# GitHub Webhook 수신 (POST /webhook/github, DESIGN.md 3.4). 라우터는 ②의 webhook_handler가 만든다.
+app.include_router(webhook_router)
 
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
+
+
+# 대시보드 화면 파일 제공 (DESIGN.md 3.7 ③). PR 코멘트의 /dashboard/report.html?id=... 링크가 여기로 온다.
+# 화면 파일 자체는 인증 없이 내려주고, 데이터는 세션이 필요한 /api/* 가 401로 막는다 (DESIGN.md 3.4).
+# html=True: /dashboard/ 로 들어오면 index.html을 보여 준다.
+app.mount("/dashboard", StaticFiles(directory=DASHBOARD_DIR, html=True), name="dashboard")
