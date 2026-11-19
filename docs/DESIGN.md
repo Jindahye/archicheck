@@ -4,7 +4,7 @@
 > 코드가 바뀌면 설계 문서·다이어그램과 어긋난 부분을 찾아, 코드 수정 또는 문서 개정안을 제안하는 AI 에이전트
 
 - 개발 기간: 2026.11.16 \~ 11.20 (5일)
-- 기술 스택: Python(FastAPI) 서버, HTML/JS 대시보드, SQLite 저장소, Claude API, NCP
+- 기술 스택: Python(FastAPI) 서버, HTML/JS 대시보드, SQLite 저장소, Gemini API, NCP
 
 ### 문서 이력
 
@@ -13,6 +13,7 @@
 | v0.1 | 2026.11.16 | 진다혜 | 최초 작성 (요구사항, 아키텍처, 상세 설계 초안) |
 | v0.2 | 2026.11.17 | 진다혜 | 3.6 디렉터리 구조 상세화, 담당 역할 표기 |
 | v0.3 | 2026.11.17 | 진다혜 | 3.7 역할 분담 추가, 2.4 배포 구성 추가, Webhook 비동기 처리(3.1), 대시보드 로그인 API·인증 규칙(3.4), 설계 문서 탐색 담당 ③ → ② 이동 |
+| v0.4 | 2026.11.19 | 진다혜 | AI를 Claude API에서 Gemini API(무료 등급)로 변경: NFR-4·5, 2장 구성도·기술 스택, 2.4 환경 변수(`GEMINI_API_KEY`, `GEMINI_MODEL`), 3.2 설계 원칙, 5장 보안 |
 
 ## 1. 요구사항
 
@@ -45,8 +46,8 @@
 | NFR-1 | 응답 시간 | PR 이벤트 수신 후 1분 이내 PR 코멘트 게시 |
 | NFR-2 | 안전성 | 코드는 자동 커밋하지 않고 수정안(diff) 제안까지만 한다 |
 | NFR-3 | 보안 | API 키·토큰은 `.env`로 관리, Webhook 서명 검증, 대시보드 접근 비밀번호 |
-| NFR-4 | 비용 | 무료 범위 내 스택만 사용 (Claude API 실습 계정, NCP 지원 크레딧) |
-| NFR-5 | 안정성 | Mermaid 문법 오류 시 오류 메시지를 Claude에 전달해 재생성 (최대 2회) |
+| NFR-4 | 비용 | 무료 범위 내 스택만 사용 (Gemini API 무료 등급, NCP 지원 크레딧) |
+| NFR-5 | 안정성 | Mermaid 문법 오류 시 오류 메시지를 Gemini에 전달해 재생성 (최대 2회) |
 
 ### 1.4 유스케이스
 
@@ -65,7 +66,7 @@ flowchart LR
     end
 
     GH["👤 GitHub<br/>(보조 액터)"]
-    AI["👤 Claude API<br/>(보조 액터)"]
+    AI["👤 Gemini API<br/>(보조 액터)"]
 
     Dev --- UC2
     Dev --- UC3
@@ -81,11 +82,11 @@ flowchart LR
 
 | 유스케이스 | 액터 | 설명 |
 | --- | --- | --- |
-| 설계 정합성 검사 | GitHub(시작), Claude API | PR 이벤트가 오면 변경 코드와 설계 문서를 비교해 불일치를 찾는다 |
+| 설계 정합성 검사 | GitHub(시작), Gemini API | PR 이벤트가 오면 변경 코드와 설계 문서를 비교해 불일치를 찾는다 |
 | 설계 문서 탐색 | - | 정합성 검사에 항상 포함. 설정 파일 또는 자동 탐색으로 설계 문서를 찾는다 |
 | 리포트 게시 | - | 정합성 검사에 항상 포함. 리포트를 저장하고 PR 코멘트를 단다 |
 | 리포트 확인 | 개발자 | 대시보드에서 분석 이력과 불일치 항목을 본다 |
-| 수정안 요청 | 개발자, Claude API | 불일치 항목마다 코드 수정 또는 문서 개정을 골라 수정안을 받는다 |
+| 수정안 요청 | 개발자, Gemini API | 불일치 항목마다 코드 수정 또는 문서 개정을 골라 수정안을 받는다 |
 | 다이어그램 갱신 | - | 문서 개정을 골랐고 해당 부분에 다이어그램이 있을 때만 수정안 요청을 확장한다 |
 | 설계 문서 경로 설정 | 개발자 | `.archicheck.yml`에 설계 문서 경로를 지정한다 (선택) |
 
@@ -123,7 +124,7 @@ flowchart TB
     end
 
     GH["GitHub<br/><i>[External System]</i><br/>코드 저장소, PR, Webhook"]
-    AI["Claude API<br/><i>[External System]</i><br/>정합성 분석, 수정안 생성"]
+    AI["Gemini API<br/><i>[External System]</i><br/>정합성 분석, 수정안 생성"]
 
     Dev -->|"PR을 올린다<br/>[HTTPS]"| GH
     GH -->|"PR 이벤트를 보낸다<br/>[Webhook, HTTPS]"| Server
@@ -143,8 +144,8 @@ flowchart TB
 | 구성 요소 | 역할 |
 | --- | --- |
 | GitHub Webhook | PR 이벤트를 서버로 전달 |
-| ArchiCheck 서버 | 이벤트 수신, diff·설계 문서 수집, Claude 호출, 리포트 저장, PR 코멘트 게시 |
-| Claude API | 설계 정합성 분석, 수정안·다이어그램 생성 |
+| ArchiCheck 서버 | 이벤트 수신, diff·설계 문서 수집, Gemini 호출, 리포트 저장, PR 코멘트 게시 |
+| Gemini API | 설계 정합성 분석, 수정안·다이어그램 생성 |
 | 리포트 저장소 | 분석 결과 저장 (SQLite 파일 1개) |
 | 웹 대시보드 | 분석 이력, 리포트 상세, 수정안 패널 표시. 데이터는 서버 API로 받는다 |
 
@@ -152,10 +153,10 @@ flowchart TB
 
 | 구분 | 기술 | 선택 이유 |
 | --- | --- | --- |
-| 서버 | Python + FastAPI | AI 코딩 도구가 잘 다루고, Claude·GitHub API 라이브러리가 갖춰져 있음 |
+| 서버 | Python + FastAPI | AI 코딩 도구가 잘 다루고, Gemini·GitHub API 라이브러리(google-genai, httpx)가 갖춰져 있음 |
 | 저장소 | SQLite | Python 기본 포함, 별도 DB 서버 불필요 |
 | 대시보드 | HTML/JS (React 미사용), mermaid.js, diff2html | 화면 3개 규모라 빌드 도구 없이 충분함 |
-| AI | Claude API (실습용 계정) |  |
+| AI | Gemini API (Google AI Studio 무료 등급) | 무료 범위에서 쓸 수 있음 (NFR-4). 모델은 `GEMINI_MODEL`로 바꿀 수 있다 |
 | 인프라 | 네이버 클라우드 플랫폼(NCP) 서버 1대 |  |
 | 연동 | GitHub Webhook, GitHub REST API |  |
 | 대체안 | GitHub Actions | NCP 서버 연동이 막히면 Actions에서 분석 실행 |
@@ -174,7 +175,8 @@ flowchart TB
 
 | 환경 변수 | 설명 | 사용하는 곳 |
 | --- | --- | --- |
-| `ANTHROPIC_API_KEY` | Claude API 키 | ① `server/analyzer/` |
+| `GEMINI_API_KEY` | Gemini API 키 (Google AI Studio에서 발급) | ① `server/analyzer/` |
+| `GEMINI_MODEL` | 사용할 Gemini 모델 이름 (선택, 비우면 코드의 기본값) | ① `server/analyzer/` |
 | `GITHUB_TOKEN` | GitHub API 토큰 (권한은 5장) | ② `server/github/` |
 | `GITHUB_WEBHOOK_SECRET` | Webhook 서명 검증용 secret | ② `server/github/` |
 | `DASHBOARD_PASSWORD` | 대시보드 접속 비밀번호 (팀 공용 1개) | ③ 로그인 API |
@@ -190,7 +192,7 @@ sequenceDiagram
     actor Dev as 개발자
     participant GH as GitHub
     participant S as ArchiCheck 서버
-    participant C as Claude API
+    participant C as Gemini API
     participant DB as 리포트 저장소
 
     Dev->>GH: PR 생성
@@ -275,7 +277,7 @@ classDiagram
 ```
 
 - 관계는 모두 의존(점선 화살표): 다른 모듈을 객체로 소유하지 않고 호출만 한다.
-- 설계 원칙: Claude API 호출은 `ConformanceAnalyzer`와 `FixGenerator`에서만 한다.
+- 설계 원칙: Gemini API 호출은 `ConformanceAnalyzer`와 `FixGenerator`에서만 한다. 두 모듈은 공통 도우미 `server/analyzer/llm_call.py`를 거쳐 호출한다.
 - 설계 원칙: GitHub API 호출은 `GitHubClient`에서만 한다.
 - `WebhookHandler.runAnalysis`는 3.1의 백그라운드 흐름(탐색 → 분석 → 저장 → 코멘트)을 실행한다.
 - `ConformanceAnalyzer.analyze(diff, designDocs, commits)`의 입출력:
@@ -386,7 +388,7 @@ archicheck/
 │  ├─ store/             ReportStore (SQLite)                          ③
 │  └─ diagram/           DiagramValidator                              ⑤
 ├─ dashboard/            분석 이력·리포트 상세·로그인 화면 ④, 수정안 패널 ⑤
-├─ prompts/              Claude 프롬프트 ①, PR 코멘트 템플릿 ⑤
+├─ prompts/              AI 프롬프트 ①, PR 코멘트 템플릿 ⑤
 ├─ samples/
 │  └─ report.json        3.3 형식의 예시 리포트 (개발용 가짜 데이터)    ①
 ├─ requirements.txt                                                    ①
@@ -404,7 +406,7 @@ archicheck/
 
 | 번호 | 담당자 | 역할 | 담당 업무 | 담당 파일·폴더 |
 | --- | --- | --- | --- | --- |
-| ① | 진다혜 | 팀장·AI 분석 | 정합성 분석·수정안 생성(Claude 호출, 프롬프트), NFR-5 다이어그램 재생성 루프, 리포트 JSON 형식 관리(3.3), PR 리뷰·Merge, 문서 관리, NCP 서버 배포(2.4) | `server/analyzer/`, `prompts/`(Claude 프롬프트), `samples/`, `docs/`, 루트 파일 |
+| ① | 진다혜 | 팀장·AI 분석 | 정합성 분석·수정안 생성(Gemini 호출, 프롬프트), NFR-5 다이어그램 재생성 루프, 리포트 JSON 형식 관리(3.3), PR 리뷰·Merge, 문서 관리, NCP 서버 배포(2.4) | `server/analyzer/`, `prompts/`(AI 프롬프트), `samples/`, `docs/`, 루트 파일 |
 | ② | 신유찬 | GitHub 연동 | Webhook 수신·서명 검증, GitHub API(diff·커밋 메시지·파일 조회, PR 코멘트 게시), 설계 문서 탐색(3.5), 분석 처리 순서 연결과 백그라운드 실행(3.1), 대상 레포 Webhook 등록·토큰 발급(2.4), E2E 테스트(4장), (확장) FR-11 Push 커밋 코멘트 | `server/github/` |
 | ③ | 윤정은 | 서버 API·저장 | FastAPI 기본 구조, 대시보드 화면 파일 제공, SQLite 저장, 대시보드용 API(3.4), 로그인·세션 인증(서버 쪽) | `server/main.py`, `server/api/`, `server/store/` |
 | ④ | 주성빈 | 대시보드 화면 | 분석 이력·리포트 상세 화면, 서버 API 연결, 로그인 화면과 `401` 처리 | `dashboard/` (수정안 패널 제외) |
@@ -437,5 +439,5 @@ Day 5에 시연 시나리오(1.5의 A, B) 기준으로 작성 예정. 실제 대
 - Webhook secret을 설정하고 서버에서 서명(`X-Hub-Signature-256`)을 검증한다.
 - 대시보드는 비밀번호 로그인과 세션 쿠키로 보호한다 (3.4).
 - 서버에 HTTPS가 없으면 로그인 비밀번호와 세션 쿠키가 암호화 없이 전송된다. 시연용 한계로 두고, 비밀번호는 다른 곳에 쓰지 않는 값으로 정한다.
-- 분석을 위해 코드가 Claude API로 전송되므로, 민감한 코드에는 별도 검토가 필요하다.
+- 분석을 위해 코드와 설계 문서가 Gemini API로 전송된다. 무료 등급에서는 보낸 내용이 Google의 모델 개선에 쓰일 수 있으므로, 공개해도 되는 코드만 분석 대상으로 한다.
 - AI 분석 결과는 틀릴 수 있으므로 수정안은 제안까지만 하고 사람이 확인 후 반영한다.

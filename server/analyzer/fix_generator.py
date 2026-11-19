@@ -3,10 +3,9 @@ from __future__ import annotations
 
 import logging
 
-import anthropic
 from pydantic import BaseModel
 
-from server.analyzer.claude_call import ClaudeCallError, call_structured, load_prompt
+from server.analyzer.llm_call import LLMCallError, call_structured, load_prompt, make_client
 from server.diagram.diagram_validator import DiagramValidator
 
 log = logging.getLogger(__name__)
@@ -30,8 +29,8 @@ class _DocRevisionOutput(BaseModel):
 
 
 class FixGenerator:
-    def __init__(self, client: anthropic.Anthropic | None = None, validator: DiagramValidator | None = None):
-        self.client = client or anthropic.Anthropic()
+    def __init__(self, client=None, validator: DiagramValidator | None = None):
+        self.client = client or make_client()
         self.validator = validator or DiagramValidator()
         self.code_prompt = load_prompt("code_fix.md")
         self.doc_prompt = load_prompt("doc_revision.md")
@@ -49,7 +48,7 @@ class FixGenerator:
         )
         try:
             result = call_structured(self.client, self.code_prompt, user, _CodeFixOutput)
-        except ClaudeCallError as e:
+        except LLMCallError as e:
             raise FixError(str(e)) from e
         return {"diff": result.diff}
 
@@ -65,7 +64,7 @@ class FixGenerator:
         for attempt in range(MAX_MERMAID_RETRIES + 1):
             try:
                 result = call_structured(self.client, self.doc_prompt, user, _DocRevisionOutput)
-            except ClaudeCallError as e:
+            except LLMCallError as e:
                 raise FixError(str(e)) from e
 
             error = self._check_mermaid(result.mermaid)
