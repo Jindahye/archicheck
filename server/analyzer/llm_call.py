@@ -9,8 +9,9 @@ from google import genai
 from google.genai import types
 from pydantic import BaseModel, ValidationError
 
-# GEMINI_MODEL 환경 변수가 없을 때 쓰는 모델. "-latest" 별칭은 Google이 최신 Flash 모델로 연결해 준다.
-DEFAULT_MODEL = "gemini-flash-latest"
+# GEMINI_MODEL 환경 변수가 없을 때 쓰는 모델. 무료 등급 한도가 넉넉한(분당 15회, 하루 500회) Flash Lite를 쓴다.
+# "gemini-flash-latest" 같은 별칭은 SDK가 쓰는 v1 API에서 404가 나므로 정확한 모델 ID를 적는다.
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
 T = TypeVar("T", bound=BaseModel)

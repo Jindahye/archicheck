@@ -72,7 +72,7 @@ def test_request_contains_inputs_without_truncation(monkeypatch):
     assert big_diff in content
     assert '<design_doc path="docs/architecture.md">' in content
     assert "- 커밋 A\n- 커밋 B" in content
-    assert call["model"] == "gemini-flash-latest"
+    assert call["model"] == "gemini-3.5-flash-lite"
     assert call["config"].response_schema is _AnalysisOutput
     assert call["config"].response_mime_type == "application/json"
     assert call["config"].system_instruction  # 프롬프트 파일 내용
