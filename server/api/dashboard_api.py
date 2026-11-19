@@ -24,9 +24,10 @@ SESSION_KEY = "logged_in"
 FIXABLE_STATUSES = {"done", "resolved"}
 
 # 외부 연동(②·① 모듈)이 던지는 실패. 다른 담당자의 모듈을 import하지 않고 클래스 이름으로 구분한다.
-# (FixGenerator는 anthropic을, GitHubClient는 httpx를 import하므로, 여기서 예외 클래스를 직접
+# (FixGenerator는 google-genai를, GitHubClient는 httpx를 import하므로, 여기서 예외 클래스를 직접
 #  import하면 해당 패키지가 없는 환경에서 서버 전체가 뜨지 않는다.)
-_EXTERNAL_ERROR_NAMES = {"FixError", "GitHubAPIError", "ClaudeCallError", "HTTPError"}
+# LLMCallError: server/analyzer/llm_call.py의 Gemini 호출 실패 (DESIGN.md v0.4에서 ClaudeCallError 대체)
+_EXTERNAL_ERROR_NAMES = {"FixError", "GitHubAPIError", "LLMCallError", "HTTPError"}
 
 
 class DashboardAPI:
@@ -170,7 +171,7 @@ def _build_or_503(factory, name: str):
 
 @lru_cache
 def _default_fix_generator():
-    # 지연 import: anthropic이 없거나 ANTHROPIC_API_KEY가 없어도 서버는 뜬다.
+    # 지연 import: google-genai가 없거나 GEMINI_API_KEY가 없어도 서버는 뜬다.
     from server.analyzer.fix_generator import FixGenerator
 
     return FixGenerator()
@@ -243,5 +244,5 @@ def request_fix(
     body: FixRequest,
     api: DashboardAPI = Depends(get_dashboard_api),
 ) -> dict:
-    # 일부러 async가 아닌 def: Claude·GitHub 호출이 오래 걸려서 스레드풀에서 돌린다.
+    # 일부러 async가 아닌 def: Gemini·GitHub 호출이 오래 걸려서 스레드풀에서 돌린다.
     return api.request_fix(id, issue_id, body.direction)
