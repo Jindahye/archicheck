@@ -1,13 +1,10 @@
 """설계 정합성 분석 (DESIGN.md 3.2, 3.3). Claude API 호출은 이 모듈과 FixGenerator에서만 한다."""
 from __future__ import annotations
 
-from pathlib import Path
-
 import anthropic
 from pydantic import BaseModel
 
-MODEL = "claude-opus-5-5"
-PROMPT_PATH = Path(__file__).resolve().parents[2] / "prompts" / "conformance_analysis.md"
+from server.analyzer.claude_call import ClaudeCallError, call_structured, load_prompt
 
 
 class AnalysisError(Exception):
@@ -46,7 +43,7 @@ class ConformanceAnalyzer:
     def __init__(self, client: anthropic.Anthropic | None = None):
         # client를 넘기지 않으면 ANTHROPIC_API_KEY 등 환경 변수로 만든다. 테스트에서는 가짜 client를 넘긴다.
         self.client = client or anthropic.Anthropic()
-        self.system_prompt = PROMPT_PATH.read_text(encoding="utf-8")
+        self.system_prompt = load_prompt("conformance_analysis.md")
 
     def analyze(self, diff: str, design_docs: list[dict], commits: list[str]) -> dict:
         """diff와 설계 문서를 비교해 3.3 리포트의 분석 필드를 만든다.
@@ -66,27 +63,14 @@ class ConformanceAnalyzer:
             raise AnalysisError("설계 문서가 없습니다. .archicheck.yml로 경로를 지정하세요.")
 
         try:
-            response = self.client.beta.messages.parse(
-                model=MODEL,
-                max_tokens=16000,
-                system=self.system_prompt,
-                messages=[{"role": "user", "content": _build_user_message(diff, design_docs, commits)}],
-                output_config={"effort": "high"},
-                output_format=_AnalysisOutput,
-                # 안전 분류기가 요청을 거절하면 서버가 다른 모델로 다시 실행한다.
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",
+            result = call_structured(
+                self.client,
+                self.system_prompt,
+                _build_user_message(diff, design_docs, commits),
+                _AnalysisOutput,
             )
-        except anthropic.APIError as e:
-            raise AnalysisError(f"Claude API 호출 실패: {e}") from e
-
-        if response.stop_reason == "refusal":
-            raise AnalysisError("Claude가 분석 요청을 거절했습니다.")
-        if response.stop_reason == "max_tokens":
-            raise AnalysisError("분석 결과가 너무 길어 중간에 잘렸습니다.")
-        result = response.parsed_output
-        if result is None:
-            raise AnalysisError("분석 결과를 3.3 형식으로 읽지 못했습니다.")
+        except ClaudeCallError as e:
+            raise AnalysisError(str(e)) from e
 
         return {
             "designDocs": [d["path"] for d in design_docs],

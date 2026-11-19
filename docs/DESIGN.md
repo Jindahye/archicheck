@@ -245,11 +245,11 @@ classDiagram
         +analyze(diff, designDocs, commits) Report
     }
     class FixGenerator {
-        +codeFix(issue) CodeFix
-        +docRevision(issue) DocRevision
+        +codeFix(issue, designDoc, code) CodeFix
+        +docRevision(issue, designDoc) DocRevision
     }
     class DiagramValidator {
-        +validate(mermaidCode) bool
+        +validate(mermaidCode) str | None
     }
     class ReportStore {
         +save(report)
@@ -282,6 +282,12 @@ classDiagram
   - 입력: `diff`는 PR의 unified diff 텍스트, `designDocs`는 `[{ "path": "...", "content": "..." }]`(`DesignDocLocator.locate` 결과), `commits`는 커밋 메시지 문자열 목록.
   - 반환: 3.3 리포트 중 분석 필드 `designDocs`, `summary`, `impact`, `issues`만 담은 dict. `issues[].id`는 `iss_1`부터 붙이고 `direction`, `fix`는 `null`이다. 나머지 필드(`id`, `repo`, `pr`, `headSha`, `title`, `createdAt`, `status`)는 `WebhookHandler`가 채워 합친다.
   - 실패하면 `AnalysisError`를 던진다. `WebhookHandler`는 이를 받아 리포트 `status`를 `failed`로 바꾼다 (3.1 실패 처리).
+- `FixGenerator`의 입출력:
+  - `codeFix(issue, designDoc, code)`: `issue`는 3.3 `issues[]` 항목, `designDoc`은 `designRef` 경로(`#` 앞) 문서 전문, `code`는 `codeRef` 파일 전문. 반환 `{ "diff": "..." }`.
+  - `docRevision(issue, designDoc)`: 반환 `{ "before": "...", "after": "...", "mermaid": "..." | null }`. `before`는 설계 문서에 있는 문구 그대로다.
+  - 문서·코드 전문은 `DashboardAPI`가 `GitHubClient.getFile(repo, headSha, 경로)`로 가져와 넘긴다.
+  - 실패하면 `FixError`를 던진다. Mermaid 문법 오류가 재생성 2회 뒤에도 남으면 실패로 본다 (NFR-5).
+- `DiagramValidator.validate(mermaidCode)`는 문법이 맞으면 `None`, 틀리면 오류 메시지 문자열을 돌려준다. 오류 메시지는 `FixGenerator`가 재생성 요청에 넣는다 (NFR-5).
 
 ### 3.3 리포트 데이터 형식 (JSON)
 
