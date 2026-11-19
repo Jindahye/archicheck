@@ -1,9 +1,10 @@
-"""FixGenerator 단위 테스트. 실제 Claude API는 호출하지 않는다."""
+"""FixGenerator 단위 테스트. 실제 Gemini API는 호출하지 않는다."""
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from google.genai import types
 
 from server.analyzer.fix_generator import (
     MAX_MERMAID_RETRIES,
@@ -21,17 +22,23 @@ CODE = "class SessionStore:\n    def save(self, s): db.insert(s)\n"
 
 
 class FakeClient:
-    """client.beta.messages.parse(...) 를 흉내 낸다. 호출마다 outputs를 차례로 돌려준다."""
+    """client.models.generate_content(...) 를 흉내 낸다. 호출마다 outputs를 차례로 돌려준다."""
 
-    def __init__(self, *outputs, stop_reason="end_turn"):
+    def __init__(self, *outputs, finish_reason=types.FinishReason.STOP):
         self.calls = []
         outputs = list(outputs)
 
-        def parse(**kwargs):
+        def generate_content(**kwargs):
             self.calls.append(kwargs)
-            return SimpleNamespace(parsed_output=outputs.pop(0), stop_reason=stop_reason)
+            out = outputs.pop(0)
+            return SimpleNamespace(
+                parsed=out,
+                text=out.model_dump_json(),
+                candidates=[SimpleNamespace(finish_reason=finish_reason)],
+                prompt_feedback=None,
+            )
 
-        self.beta = SimpleNamespace(messages=SimpleNamespace(parse=parse))
+        self.models = SimpleNamespace(generate_content=generate_content)
 
 
 class FakeValidator:
@@ -63,14 +70,14 @@ def test_code_fix_returns_diff_and_sends_inputs():
     result = FixGenerator(client=client, validator=FakeValidator()).code_fix(ISSUE, DOC, CODE)
 
     assert result == {"diff": "--- a/x\n+++ b/x\n"}
-    content = client.calls[0]["messages"][0]["content"]
+    content = client.calls[0]["contents"]
     assert '<design_doc path="docs/architecture.md">' in content  # "#섹션" 은 경로에서 뗀다
     assert f'<code path="{ISSUE["codeRef"]}">\n{CODE}' in content
     assert ISSUE["detail"] in content
 
 
-def test_code_fix_refusal_raises():
-    client = FakeClient(_CodeFixOutput(diff=""), stop_reason="refusal")
+def test_code_fix_blocked_response_raises():
+    client = FakeClient(_CodeFixOutput(diff=""), finish_reason=types.FinishReason.SAFETY)
     with pytest.raises(FixError):
         FixGenerator(client=client, validator=FakeValidator()).code_fix(ISSUE, DOC, CODE)
 
@@ -101,7 +108,7 @@ def test_doc_revision_retries_with_error_message():
 
     assert result["mermaid"].startswith("sequenceDiagram")
     assert len(client.calls) == 2
-    retry = client.calls[1]["messages"][0]["content"]
+    retry = client.calls[1]["contents"]
     assert "<previous_mermaid>\nbad\n</previous_mermaid>" in retry
     assert "Parse error on line 2" in retry
 

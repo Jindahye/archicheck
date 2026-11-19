@@ -24,7 +24,7 @@ ArchiCheck는 PR이 올라올 때마다 **설계 문서를 기준으로 코드 �
 flowchart LR
     Dev([개발자]) -->|PR| GH[GitHub]
     GH -->|Webhook| S[ArchiCheck 서버]
-    S -->|정합성 분석| AI[Claude API]
+    S -->|정합성 분석| AI[Gemini API]
     S -->|리포트 코멘트| GH
     Dev -->|수정 방향 선택| D[대시보드]
     D --> S
@@ -37,7 +37,7 @@ flowchart LR
 | 서버 | Python, FastAPI |
 | 저장소 | SQLite |
 | 대시보드 | HTML/JS, mermaid.js, diff2html |
-| AI | Claude API |
+| AI | Gemini API |
 | 인프라 | 네이버 클라우드 플랫폼(NCP) |
 | 연동 | GitHub Webhook, GitHub REST API |
 

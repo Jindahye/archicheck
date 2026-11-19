@@ -1,17 +1,16 @@
-"""설계 정합성 분석 (DESIGN.md 3.2, 3.3). Claude API 호출은 이 모듈과 FixGenerator에서만 한다."""
+"""설계 정합성 분석 (DESIGN.md 3.2, 3.3). Gemini API 호출은 이 모듈과 FixGenerator에서만 한다 (llm_call.py를 거친다)."""
 from __future__ import annotations
 
-import anthropic
 from pydantic import BaseModel
 
-from server.analyzer.claude_call import ClaudeCallError, call_structured, load_prompt
+from server.analyzer.llm_call import LLMCallError, call_structured, load_prompt, make_client
 
 
 class AnalysisError(Exception):
     """분석 실패. WebhookHandler는 이 예외를 받으면 리포트 status를 failed로 바꾼다 (3.1)."""
 
 
-# --- Claude 응답 형식 (structured outputs). 3.3의 summary / impact / issues 와 같은 이름을 쓴다. ---
+# --- Gemini 응답 형식 (JSON 스키마). 3.3의 summary / impact / issues 와 같은 이름을 쓴다. ---
 
 
 class _Summary(BaseModel):
@@ -40,9 +39,9 @@ class _AnalysisOutput(BaseModel):
 
 
 class ConformanceAnalyzer:
-    def __init__(self, client: anthropic.Anthropic | None = None):
-        # client를 넘기지 않으면 ANTHROPIC_API_KEY 등 환경 변수로 만든다. 테스트에서는 가짜 client를 넘긴다.
-        self.client = client or anthropic.Anthropic()
+    def __init__(self, client=None):
+        # client를 넘기지 않으면 GEMINI_API_KEY 환경 변수로 만든다. 테스트에서는 가짜 client를 넘긴다.
+        self.client = client or make_client()
         self.system_prompt = load_prompt("conformance_analysis.md")
 
     def analyze(self, diff: str, design_docs: list[dict], commits: list[str]) -> dict:
@@ -69,7 +68,7 @@ class ConformanceAnalyzer:
                 _build_user_message(diff, design_docs, commits),
                 _AnalysisOutput,
             )
-        except ClaudeCallError as e:
+        except LLMCallError as e:
             raise AnalysisError(str(e)) from e
 
         return {

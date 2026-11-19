@@ -1,6 +1,6 @@
 fastapi
 uvicorn
-anthropic
+google-genai
 httpx
 python-dotenv
 itsdangerous
