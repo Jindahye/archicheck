@@ -1,11 +1,27 @@
 // ArchiCheck 대시보드 (④ 담당: 분석 이력 · 리포트 상세)
 
 // ===== 설정 =====
-// true  : sample-data.js의 가짜 데이터로 화면을 그린다 (서버 없이 개발할 때)
-// false : 서버 API(/api/reports ...)에서 데이터를 받는다
-const USE_SAMPLE = true;
+// 샘플 모드: sample-data.js의 가짜 데이터로 화면을 그린다 (서버 없이 개발할 때)
+// API 모드: 서버 API(/api/reports ...)에서 데이터를 받고, 로그인은 서버가 확인한다 (설계 문서 3.4)
+//
+// 모드는 자동으로 고른다. 손으로 바꾸지 않는다.
+// - 파일을 더블클릭해서 연 경우(file://) → 샘플 모드
+// - 서버 주소(http://...)로 연 경우 → API 모드 (FastAPI가 화면을 함께 제공할 때, 2.1)
+// - VS Code Live Server처럼 서버 없이 http로 열 때는 주소 끝에 ?sample=1을 붙이면 샘플 모드가 된다
+const USE_SAMPLE = detectSampleMode();
 const API_BASE = "";          // 같은 서버에서 제공하면 빈 문자열 그대로
 const POLL_MS = 5000;         // 분석 중일 때 다시 불러오는 간격
+
+function detectSampleMode() {
+  if (location.protocol === "file:") return true;
+  const KEY = "archicheck-sample-mode";
+  try {
+    if (new URLSearchParams(location.search).get("sample") === "1") sessionStorage.setItem(KEY, "1");
+    return sessionStorage.getItem(KEY) === "1";   // 화면을 옮겨 다녀도 유지
+  } catch (_) {
+    return false;
+  }
+}
 
 // ===== 데이터 불러오기 (API 연결은 여기만 고치면 된다) =====
 const api = {
@@ -30,15 +46,46 @@ const api = {
   },
 };
 
+// 서버 오류. status로 화면마다 알맞은 안내 문구를 고른다 (0은 서버에 연결하지 못한 경우)
+class ApiError extends Error {
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function getJson(url, options = {}) {
   // 대시보드와 API가 같은 주소라 세션 쿠키는 브라우저가 자동으로 붙인다 (설계 문서 3.4)
-  const res = await fetch(url, { credentials: "same-origin", ...options });
+  let res;
+  try {
+    res = await fetch(url, { credentials: "same-origin", ...options });
+  } catch (_) {
+    throw new ApiError(0, "서버에 연결하지 못했습니다. 잠시 뒤 다시 시도하세요.");
+  }
   if (res.status === 401) {               // 세션 없음 → 로그인 화면으로 (3.4 화면 ④)
     auth.goLogin();
-    throw new Error("로그인이 필요합니다.");
+    throw new ApiError(401, "로그인이 필요합니다.");
   }
-  if (!res.ok) throw new Error(`서버가 ${res.status} 오류를 돌려줬습니다.`);
+  if (!res.ok) throw new ApiError(res.status, `서버가 ${res.status} 오류를 돌려줬습니다.`);
   return res.json();
+}
+
+// 리포트 조회 실패 안내
+function reportErrorMessage(e) {
+  if (e.status === 404) return "리포트를 찾을 수 없습니다. 분석 이력에서 다시 선택하세요.";
+  return e.message;
+}
+
+// 수정안 요청 실패 안내 (POST /api/reports/{id}/issues/{issueId}/fix의 오류 코드)
+function fixErrorMessage(e) {
+  switch (e.status) {
+    case 404: return "레포에서 설계 문서나 코드 파일을 찾지 못했습니다.";
+    case 409: return "아직 분석 중이거나 분석에 실패한 리포트라 수정안을 만들 수 없습니다.";
+    case 422: return "이 항목에는 설계 문서나 코드 위치가 없어 수정안을 만들 수 없습니다.";
+    case 502: return "AI가 수정안을 만들지 못했습니다. 잠시 뒤 다시 시도하세요.";
+    case 503: return "서버에서 수정안 기능을 쓸 수 없습니다. 서버 담당자에게 알려 주세요.";
+    default:  return e.message;
+  }
 }
 
 // ===== 로그인 (설계 문서 3.4 대시보드 인증: 로그인 API + 세션 쿠키) =====
@@ -381,7 +428,7 @@ async function renderReport() {
     r = await api.getReport(id);
   } catch (e) {
     root.innerHTML = `<a href="index.html" class="back">← 분석 이력</a>
-      <div class="notice failed">${icon("alert")}<div><strong>리포트를 불러오지 못했습니다</strong><p>${esc(e.message)}</p></div></div>`;
+      <div class="notice failed">${icon("alert")}<div><strong>리포트를 불러오지 못했습니다</strong><p>${esc(reportErrorMessage(e))}</p></div></div>`;
     return;
   }
 
@@ -547,7 +594,8 @@ function bindIssueButtons(r) {
       btn.addEventListener("click", async () => {
         const direction = btn.dataset.dir;
         buttons.forEach((b) => (b.disabled = true));
-        choice.textContent = `${DIRECTION_LABEL[direction]}안을 만드는 중입니다…`;
+        choice.classList.remove("error");
+        choice.textContent = `${DIRECTION_LABEL[direction]}안을 만드는 중입니다. AI 응답에 시간이 걸릴 수 있습니다…`;
         try {
           const result = await api.requestFix(r.id, iss.id, direction);
           iss.direction = result.direction ?? direction;
@@ -557,14 +605,26 @@ function bindIssueButtons(r) {
           choice.textContent = `${DIRECTION_LABEL[iss.direction]}으로 정했습니다`;
           showFix(iss, panel);
           refreshProgress(r);
+          refreshStatus(r);
         } catch (e) {
-          choice.textContent = `수정안을 만들지 못했습니다. ${e.message}`;
+          // 실패하면 서버는 아무것도 저장하지 않는다 → 이전 선택은 그대로 둔다
+          choice.classList.add("error");
+          choice.textContent = fixErrorMessage(e);
         } finally {
           buttons.forEach((b) => (b.disabled = false));
         }
       });
     });
   });
+}
+
+// 모든 불일치에 수정안이 생기면 서버가 리포트를 resolved로 바꾼다 (PR #6) → 상단 배지도 바로 바꾼다
+function refreshStatus(r) {
+  const issues = r.issues || [];
+  if (r.status !== "done" || !issues.length || !issues.every((i) => i.fix)) return;
+  r.status = "resolved";
+  const badge = document.querySelector(".report-head .status");
+  if (badge) badge.outerHTML = statusBadge("resolved");
 }
 
 function refreshProgress(r) {
