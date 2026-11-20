@@ -46,7 +46,7 @@ def test_report_link_from_pr_comment_serves_html(client):
     r = client.get(DASHBOARD_PATH + "rpt_1_abc")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
-    assert r.text == (DASHBOARD_DIR / "report.html").read_text(encoding="utf-8")
+    assert r.content == (DASHBOARD_DIR / "report.html").read_bytes()  # 바이트 비교: Windows CRLF 체크아웃에서도 같게
 
 
 @pytest.mark.parametrize("name", ["index.html", "login.html", "report.html"])
@@ -74,7 +74,7 @@ def test_assets_referenced_by_pages_served(client, path, content_type):
 def test_dashboard_root_serves_index(client):
     r = client.get("/dashboard/")
     assert r.status_code == 200
-    assert r.text == (DASHBOARD_DIR / "index.html").read_text(encoding="utf-8")
+    assert r.content == (DASHBOARD_DIR / "index.html").read_bytes()
 
 
 def test_dashboard_without_slash_redirects_to_index(client):
