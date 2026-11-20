@@ -158,6 +158,10 @@ class GitHubAPIError(Exception):
     pass
 
 
+class LLMCallError(Exception):  # server/analyzer/llm_call.py의 Gemini 호출 실패와 같은 이름
+    pass
+
+
 CODE_FIX = {"diff": "--- a/src/auth/SessionStore.java\n+++ b/src/auth/SessionStore.java\n@@\n-old\n+new\n"}
 DOC_FIX = {"before": "old text", "after": "new text", "mermaid": "sequenceDiagram\n  A->>B: hi"}
 
@@ -377,7 +381,14 @@ def test_fix_file_not_in_repo_404(fix_client, store, sample, github):
 
 
 @pytest.mark.parametrize("where", ["github", "generator"])
-@pytest.mark.parametrize("error", [GitHubAPIError("GET -> 500 secret-token"), FixError("secret-key 실패")])
+@pytest.mark.parametrize(
+    "error",
+    [
+        GitHubAPIError("GET -> 500 secret-token"),
+        FixError("secret-key 실패"),
+        LLMCallError("Gemini API 호출 실패: secret-key"),
+    ],
+)
 def test_fix_upstream_failure_502_and_nothing_saved(fix_client, store, sample, github, generator, where, error):
     store.save(sample)
     {"github": github, "generator": generator}[where].error = error
@@ -385,6 +396,19 @@ def test_fix_upstream_failure_502_and_nothing_saved(fix_client, store, sample, g
     assert r.status_code == 502
     assert "secret" not in r.text  # 외부 오류 메시지를 응답에 그대로 싣지 않는다
     assert store.get(sample["id"]) == sample  # 불완전한 수정안이 저장되지 않는다
+
+
+def test_external_error_names_match_real_classes():
+    """이름으로 구분하는 외부 실패 목록이 실제 예외 클래스 이름과 맞는지 확인한다.
+
+    다른 담당자 모듈에서 예외 이름이 바뀌면(예: ClaudeCallError → LLMCallError) 여기서 바로 드러난다.
+    """
+    pytest.importorskip("google.genai")
+    from server.analyzer.fix_generator import FixError as RealFixError
+    from server.analyzer.llm_call import LLMCallError as RealLLMCallError
+
+    assert dashboard_api._is_external_error(RealFixError("x"))
+    assert dashboard_api._is_external_error(RealLLMCallError("x"))
 
 
 def test_fix_network_error_is_502(fix_client, store, sample, github):
@@ -439,10 +463,10 @@ def test_fix_unexpected_error_is_not_swallowed(store, sample, github, generator)
 
 
 def test_fix_unavailable_generator_503(client, store, sample, github, monkeypatch):
-    """anthropic 미설치·API 키 없음처럼 FixGenerator를 만들 수 없으면 503이다 (서버는 정상 기동)."""
+    """google-genai 미설치·API 키 없음처럼 FixGenerator를 만들 수 없으면 503이다 (서버는 정상 기동)."""
 
     def broken():
-        raise ImportError("No module named 'anthropic'")
+        raise ImportError("No module named 'google.genai'")
 
     monkeypatch.setattr(dashboard_api, "_default_fix_generator", broken)
     app.dependency_overrides[get_dashboard_api] = lambda: DashboardAPI(store, github=github)
