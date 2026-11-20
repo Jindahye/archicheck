@@ -1,0 +1,4 @@
+# ArchiCheck 설정 (DESIGN.md 3.5). 이 레포의 설계 문서는 DESIGN.md 하나다.
+# 지정하지 않으면 Mermaid 블록이 있는 README.md, prompts/*.md까지 설계 문서로 쓰인다 (DESIGN.md 4.2).
+design_docs:
+  - docs/DESIGN.md

@@ -471,8 +471,8 @@ NCP 서버(2.4)에 배포한 상태로, 대상 레포에 실제 PR을 올려 Web
 | --- | --- | --- |
 | 수정안이 JSON 글자로 표시됨 | ⑤ 수정안 패널(`renderFixPanel`) 미완성 | ⑤ 작업 중 |
 | 긴 줄이 있으면 불일치 카드가 오른쪽 칸을 침범 | `.issue` grid에 열 너비 지정 없음 | ④ `grid-template-columns: minmax(0, 1fr)` 추가 |
-| 수정안 요청 1회가 `502`로 실패, 다시 누르니 성공 | Gemini `503`(일시적 수요 과다) | 재시도 처리 검토 (①) |
-| 설계 문서로 `README.md`, `prompts/doc_revision.md`도 함께 사용됨 | 자동 탐색(3.5)이 Mermaid 블록이 있는 md를 모두 포함 | 이 레포에 `.archicheck.yml`로 `docs/DESIGN.md` 지정 검토 (①) |
+| 수정안 요청 1회가 `502`로 실패, 다시 누르니 성공 | Gemini `503`(일시적 수요 과다) | `llm_call.py`에서 429·500·503을 최대 3번 시도하도록 수정 (①) |
+| 설계 문서로 `README.md`, `prompts/doc_revision.md`도 함께 사용됨 | 자동 탐색(3.5)이 Mermaid 블록이 있는 md를 모두 포함 | 레포 루트에 `.archicheck.yml`을 두어 `docs/DESIGN.md`만 지정 (①) |
 
 ## 5. 보안 및 한계
 

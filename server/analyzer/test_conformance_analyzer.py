@@ -123,3 +123,15 @@ def test_api_exception_raises():
 def test_unparsed_output_raises():
     with pytest.raises(AnalysisError):
         ConformanceAnalyzer(client=FakeClient(parsed=None)).analyze("d", DOCS, [])
+
+
+def test_client_retries_temporary_gemini_errors(monkeypatch):
+    """make_client는 503(수요 과다)·429(한도) 같은 일시 오류를 재시도하도록 설정한다."""
+    from server.analyzer import llm_call
+
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+    client = llm_call.make_client()
+    retry = llm_call.HTTP_OPTIONS.retry_options
+    assert retry.attempts >= 2
+    assert {429, 503} <= set(retry.http_status_codes)
+    assert client._api_client._http_options.retry_options == retry

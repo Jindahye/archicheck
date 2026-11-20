@@ -14,6 +14,15 @@ from pydantic import BaseModel, ValidationError
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
+# Gemini 일시 오류(429 한도, 500, 503 수요 과다)는 잠깐 뒤 다시 시도한다 (E2E에서 503이 실제로 났다, DESIGN.md 4.2).
+# 최대 3번 시도, 2초 → 4초 간격. 응답이 오지 않는 요청은 90초에서 끊는다.
+HTTP_OPTIONS = types.HttpOptions(
+    timeout=90_000,  # 밀리초
+    retry_options=types.HttpRetryOptions(
+        attempts=3, initial_delay=2.0, max_delay=8.0, http_status_codes=[429, 500, 503]
+    ),
+)
+
 T = TypeVar("T", bound=BaseModel)
 
 
@@ -31,7 +40,7 @@ def model_name() -> str:
 
 def make_client() -> genai.Client:
     """GEMINI_API_KEY 환경 변수로 클라이언트를 만든다. 키가 없으면 예외가 난다."""
-    return genai.Client()
+    return genai.Client(http_options=HTTP_OPTIONS)
 
 
 def call_structured(client, system: str, user: str, output_format: type[T]) -> T:
