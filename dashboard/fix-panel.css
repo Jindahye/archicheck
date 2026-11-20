@@ -1,0 +1,80 @@
+/* ArchiCheck 수정안 패널 (⑤ 담당). 색은 style.css의 Primer 변수를 그대로 쓴다. */
+
+.fp {
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface);
+  padding: 12px 14px; font-size: var(--fs-sm); min-width: 0;
+}
+.fp-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.fp-head h4 { margin: 0; font-size: var(--fs-md); }
+.fp-sub { color: var(--ink-2); display: inline-flex; gap: 6px; align-items: center; }
+.fp-spacer { flex: 1; }
+.fp-legend { margin: 6px 0 10px; color: var(--ink-3); font-size: var(--fs-xs); }
+.fp-note { margin: 0; color: var(--ink-3); font-size: var(--fs-xs); }
+.fp-warn { color: var(--warn); }
+
+.fp-stat { font-family: var(--font-mono); font-size: var(--fs-xs); font-weight: 600; }
+.fp-stat.add { color: var(--ok); }
+.fp-stat.del { color: var(--crit); }
+.fp-key { display: inline-block; padding: 0 6px; border-radius: 4px; font-weight: 600; }
+.fp-key.add { background: var(--ok-bg); color: var(--ok); }
+.fp-key.del { background: var(--crit-bg); color: var(--crit); }
+
+.fp-copy {
+  font: inherit; font-size: var(--fs-xs); font-weight: 600; cursor: pointer;
+  padding: 3px 10px; border-radius: 6px; border: 1px solid var(--line);
+  background: var(--paper); color: var(--ink);
+}
+.fp-copy:hover { border-color: var(--ink-3); }
+
+/* ---- 코드 diff (대체 화면) ---- */
+.fp-file { border: 1px solid var(--line-soft); border-radius: 6px; overflow: hidden; margin-top: 8px; }
+.fp-file-head {
+  display: flex; gap: 8px; align-items: center; padding: 6px 10px;
+  background: var(--paper); border-bottom: 1px solid var(--line-soft);
+}
+.fp-path { font-family: var(--font-mono); font-size: var(--fs-xs); overflow-wrap: anywhere; flex: 1; }
+.fp-scroll { overflow-x: auto; }
+.fp-diff { border-collapse: collapse; width: 100%; font-family: var(--font-mono); font-size: var(--fs-xs); }
+.fp-diff td { padding: 0 8px; white-space: pre; vertical-align: top; line-height: 1.6; }
+.fp-diff .fp-no { width: 1%; text-align: right; color: var(--ink-3); user-select: none; }
+.fp-diff .fp-sign { display: inline-block; width: 1.2em; user-select: none; }
+.fp-diff tr.fp-add td { background: var(--ok-bg); }
+.fp-diff tr.fp-del td { background: var(--crit-bg); }
+.fp-diff tr.fp-add .fp-sign { color: var(--ok); }
+.fp-diff tr.fp-del .fp-sign { color: var(--crit); }
+.fp-diff tr.fp-hunk td { background: var(--accent-soft); color: var(--ink-2); }
+.fp-diff tr.fp-meta td { color: var(--ink-3); }
+
+/* diff2html를 불러왔을 때: 카드 폭을 넘지 않게 */
+.fp-d2h { overflow-x: auto; }
+.fp-d2h .d2h-wrapper { font-size: var(--fs-xs); }
+.fp-d2h .d2h-file-wrapper { margin-bottom: 8px; }
+
+/* ---- 문서 개정안: 나란히 비교 ---- */
+.fp-sbs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+@media (max-width: 720px) { .fp-sbs { grid-template-columns: minmax(0, 1fr); } }
+.fp-side { border: 1px solid var(--line-soft); border-radius: 6px; overflow: hidden; min-width: 0; }
+.fp-side-title { display: block; font-size: var(--fs-xs); font-weight: 600; color: var(--ink-2); padding: 5px 10px; background: var(--paper); }
+.fp-side .fp-side-title { border-bottom: 1px solid var(--line-soft); }
+.fp-before .fp-side-title { color: var(--crit); }
+.fp-after .fp-side-title { color: var(--ok); }
+.fp-text {
+  margin: 0; padding: 6px 0; overflow-x: auto;
+  font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.6;
+}
+.fp-line { display: block; padding: 0 10px; white-space: pre; }
+.fp-line.fp-del { background: var(--crit-bg); }
+.fp-line.fp-add { background: var(--ok-bg); }
+.fp-side-empty { padding: 8px 10px; color: var(--ink-3); font-size: var(--fs-xs); }
+
+/* ---- 다이어그램 ---- */
+.fp-diagram { margin-top: 12px; border: 1px solid var(--line-soft); border-radius: 6px; overflow: hidden; }
+.fp-diagram-head { display: flex; align-items: center; gap: 8px; background: var(--paper); padding-right: 8px; border-bottom: 1px solid var(--line-soft); }
+.fp-diagram-view { padding: 12px; overflow-x: auto; text-align: center; }
+.fp-diagram-view svg { max-width: 100%; height: auto; }
+.fp-src { border-top: 1px solid var(--line-soft); padding: 6px 10px; font-size: var(--fs-xs); }
+.fp-src summary { cursor: pointer; color: var(--ink-2); }
+.fp-src pre { margin: 6px 0 0; overflow-x: auto; font-family: var(--font-mono); }
+
+.fp-empty { color: var(--ink-2); background: var(--paper); border-style: dashed; }
+.fp-empty pre { margin: 8px 0 0; padding: 10px; overflow-x: auto; background: var(--surface); font-family: var(--font-mono); font-size: var(--fs-xs); }
