@@ -172,7 +172,7 @@ flowchart TB
 | 공개 주소 | GitHub Webhook을 받을 수 있도록 외부에서 접근 가능한 주소를 둔다. 이 주소를 `PUBLIC_BASE_URL`에 넣는다 |
 | Webhook 등록 | ②가 대상 레포에 Webhook을 등록한다. URL은 `{PUBLIC_BASE_URL}/webhook/github`, 이벤트는 `pull_request`, secret은 `GITHUB_WEBHOOK_SECRET`과 같은 값 |
 | 환경 변수 | 서버의 `.env`에 둔다. 목록은 아래 표 |
-| Node.js | `DiagramValidator`의 Mermaid 문법 검사용. 서버에 Node.js 18 이상을 설치하고 `server/diagram/`에서 `npm ci`를 한 번 실행한다 (①). 없으면 검증을 건너뛰고 경고 로그만 남긴다 |
+| Node.js | `DiagramValidator`의 Mermaid 문법 검사용. 서버에 Node.js 22.22 이상(mermaid·jsdom 요구 사항, 서버는 24 LTS)을 설치하고 `server/diagram/`에서 `npm ci`를 한 번 실행한다 (①). 없으면 검증을 건너뛰고 경고 로그만 남긴다 |
 
 | 환경 변수 | 설명 | 사용하는 곳 |
 | --- | --- | --- |
