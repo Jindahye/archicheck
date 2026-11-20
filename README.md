@@ -94,8 +94,8 @@ node --test dashboard/tests/app.test.js     # 대시보드 단위 테스트
 
 | 번호 | 이름 | 역할 | 담당 업무 | GitHub |
 |---|---|---|---|---|
-| ① | 진다혜 | 팀장·AI 분석 | 설계 문서 작성·관리, 정합성 분석·수정안 생성(Gemini 호출, 프롬프트), Mermaid 재생성 루프, 리포트 JSON 형식, PR 리뷰·Merge, NCP 서버 배포, Webhook 등록·E2E 테스트 | [Jindahye](https://github.com/Jindahye) |
+| ① | 진다혜 | 팀장·AI 분석 | 설계 문서 작성·관리, 정합성 분석·수정안 생성(Gemini 호출, 프롬프트), Mermaid 재생성 루프, 리포트 JSON 형식, PR 리뷰·Merge, NCP 서버 배포, Webhook 등록·E2E 테스트, 발표 자료 | [Jindahye](https://github.com/Jindahye) |
 | ② | 신유찬 | GitHub 연동 | Webhook 수신·서명 검증, GitHub API 클라이언트(diff·파일 조회, PR 코멘트 게시), 설계 문서 탐색, PR 코멘트 형식, 연습용 레포 연결 테스트 | [yc-shin0](https://github.com/yc-shin0) |
 | ③ | 윤정은 | 서버 API·저장 | FastAPI 앱 구조, SQLite 리포트 저장, 대시보드 API·수정안 생성 API, 로그인·세션 인증, Webhook 라우터 연결, 대시보드 화면 파일 제공 | [wjdsl](https://github.com/wjdsl) |
 | ④ | 주성빈 | 대시보드 화면 | 분석 이력·리포트 상세·로그인 화면, 서버 API 연결과 오류 안내, 샘플/API 모드 자동 전환, 대시보드 단위 테스트 | [AP6258](https://github.com/AP6258) |
-| ⑤ | 장경호 | 시각화·발표 | Mermaid 문법 검증(DiagramValidator), 수정안 패널(diff·다이어그램 표시), 시연·발표 자료 | [OVenrswrll](https://github.com/OVenrswrll) |
+| ⑤ | 장경호 | 시각화·발표 | Mermaid 문법 검증(DiagramValidator), 수정안 패널(diff·다이어그램 표시), 시연·발표 | [OVenrswrll](https://github.com/OVenrswrll) |
