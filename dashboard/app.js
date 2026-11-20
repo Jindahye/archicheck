@@ -153,15 +153,18 @@ function addLogoutButton() {
 }
 
 // ===== 로그인 화면 =====
+// 로그인 후 돌아갈 화면. 같은 폴더의 대시보드 화면으로만 보낸다 (외부 주소로 튕기지 않게)
+function safeNextPage(next) {
+  return /^(index|report)\.html(\?.*)?$/.test(next || "") ? next : "index.html";
+}
+
 function renderLogin() {
   const form = document.getElementById("login-form");
   const input = document.getElementById("password");
   const error = document.getElementById("pw-error");
   const toggle = document.getElementById("toggle-pw");
   const submit = document.getElementById("login-btn");
-  const next = new URLSearchParams(location.search).get("next") || "index.html";
-  // 같은 폴더의 화면으로만 이동 (외부 주소로 튕기지 않게)
-  const safeNext = /^(index|report)\.html(\?.*)?$/.test(next) ? next : "index.html";
+  const safeNext = safeNextPage(new URLSearchParams(location.search).get("next"));
 
   if (USE_SAMPLE) {
     document.getElementById("login-note").textContent = "샘플 모드에서는 아무 비밀번호나 통과합니다.";
