@@ -51,11 +51,33 @@ flowchart LR
 python -m venv .venv
 .venv\Scripts\activate          # macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env            # 값 채우기
+cp .env.example .env            # 값 채우기 (아래 표)
+cd server/diagram && npm ci && cd ../..   # Mermaid 문법 검증용 (Node.js 22.22 이상)
 uvicorn server.main:app --reload
 ```
 
-`http://localhost:8000/health`에서 `{"status":"ok"}`가 나오면 정상입니다.
+- `http://localhost:8000/health`에서 `{"status":"ok"}`가 나오면 정상입니다.
+- 대시보드: `http://localhost:8000/dashboard/` (비밀번호는 `DASHBOARD_PASSWORD`)
+- Node.js나 `npm ci`를 건너뛰어도 서버는 뜹니다. 이때는 Mermaid 문법 검증만 건너뜁니다.
+
+| 환경 변수 | 설명 |
+| --- | --- |
+| `GEMINI_API_KEY` | Gemini API 키 ([Google AI Studio](https://aistudio.google.com)에서 발급) |
+| `GEMINI_MODEL` | (선택) 모델 이름. 비우면 `gemini-3.5-flash-lite` |
+| `GITHUB_TOKEN` | 대상 레포의 PR 읽기·코멘트 쓰기 권한이 있는 토큰 |
+| `GITHUB_WEBHOOK_SECRET` | 대상 레포 Webhook에 넣은 secret과 같은 값 |
+| `DASHBOARD_PASSWORD` | 대시보드 로그인 비밀번호 |
+| `SESSION_SECRET` | 세션 쿠키 서명 키 (임의의 긴 문자열) |
+| `PUBLIC_BASE_URL` | 서버 공개 주소. PR 코멘트의 대시보드 링크에 쓴다 |
+
+자세한 내용은 [설계 문서 2.4](docs/DESIGN.md#24-배포-구성)를 참고하세요.
+
+### 테스트
+
+```bash
+pytest                                      # 서버 단위 테스트
+node --test dashboard/tests/app.test.js     # 대시보드 단위 테스트
+```
 
 ## 협업 규칙
 
