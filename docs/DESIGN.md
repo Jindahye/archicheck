@@ -14,6 +14,7 @@
 | v0.2 | 2026.11.17 | 진다혜 | 3.6 디렉터리 구조 상세화, 담당 역할 표기 |
 | v0.3 | 2026.11.17 | 진다혜 | 3.7 역할 분담 추가, 2.4 배포 구성 추가, Webhook 비동기 처리(3.1), 대시보드 로그인 API·인증 규칙(3.4), 설계 문서 탐색 담당 ③ → ② 이동 |
 | v0.4 | 2026.11.19 | 진다혜 | AI를 Claude API에서 Gemini API(무료 등급)로 변경: NFR-4·5, 2장 구성도·기술 스택, 2.4 환경 변수(`GEMINI_API_KEY`, `GEMINI_MODEL`), 3.2 설계 원칙, 5장 보안 |
+| v0.5 | 2026.11.20 | 진다혜 | ⑤ Mermaid 검증 방식 확정 (Node.js + `mermaid.parse`, jsdom): 2.4 Node.js 항목, 3.2 `DiagramValidator` 설명, 3.7 정해야 할 사항 |
 
 ## 1. 요구사항
 
@@ -171,7 +172,7 @@ flowchart TB
 | 공개 주소 | GitHub Webhook을 받을 수 있도록 외부에서 접근 가능한 주소를 둔다. 이 주소를 `PUBLIC_BASE_URL`에 넣는다 |
 | Webhook 등록 | ②가 대상 레포에 Webhook을 등록한다. URL은 `{PUBLIC_BASE_URL}/webhook/github`, 이벤트는 `pull_request`, secret은 `GITHUB_WEBHOOK_SECRET`과 같은 값 |
 | 환경 변수 | 서버의 `.env`에 둔다. 목록은 아래 표 |
-| Node.js | `DiagramValidator`가 mermaid-cli를 쓰기로 하면 서버에 Node.js를 설치한다 (3.7 ⑤ 확정 사항) |
+| Node.js | `DiagramValidator`의 Mermaid 문법 검사용. 서버에 Node.js 18 이상을 설치하고 `server/diagram/`에서 `npm ci`를 한 번 실행한다 (①). 없으면 검증을 건너뛰고 경고 로그만 남긴다 |
 
 | 환경 변수 | 설명 | 사용하는 곳 |
 | --- | --- | --- |
@@ -290,6 +291,8 @@ classDiagram
   - 문서·코드 전문은 `DashboardAPI`가 `GitHubClient.getFile(repo, headSha, 경로)`로 가져와 넘긴다.
   - 실패하면 `FixError`를 던진다. Mermaid 문법 오류가 재생성 2회 뒤에도 남으면 실패로 본다 (NFR-5).
 - `DiagramValidator.validate(mermaidCode)`는 문법이 맞으면 `None`, 틀리면 오류 메시지 문자열을 돌려준다. 오류 메시지는 `FixGenerator`가 재생성 요청에 넣는다 (NFR-5).
+  - 검사 방식: Node.js로 `server/diagram/mermaid_validate.mjs`를 실행해 `mermaid.parse()`로 문법만 검사한다. 브라우저 화면(DOM)은 jsdom으로 대신하므로 크롬이 필요 없고, 대시보드의 mermaid.js와 같은 파서를 쓴다.
+  - Node.js·npm 패키지가 없거나 검사기 자체가 실패하면 `None`(통과)으로 처리하고 경고 로그를 남긴다. 환경 문제로 수정안 생성 전체가 멈추지 않게 하기 위함이다.
 
 ### 3.3 리포트 데이터 형식 (JSON)
 
@@ -424,7 +427,7 @@ archicheck/
 
 정해야 할 사항:
 
-- **⑤ Mermaid 검증 방식 (Day 2까지 확정):** Mermaid 파서는 JavaScript로만 제공된다. 서버에서 mermaid-cli(Node.js)를 호출할지, 다른 방법을 쓸지 정한다. Node.js가 필요하면 ①이 NCP 서버에 설치한다.
+- **⑤ Mermaid 검증 방식 (확정, v0.5):** mermaid-cli는 크롬을 띄워야 해서 무겁기 때문에 쓰지 않고, Node.js에서 `mermaid.parse()`를 jsdom과 함께 호출한다 (3.2). Node.js 설치와 `npm ci`는 ①이 NCP 서버에서 한다 (2.4).
 
 ## 4. 테스트
 
