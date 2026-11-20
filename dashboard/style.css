@@ -244,6 +244,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .issue {
   background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius);
   border-left: 4px solid var(--crit); padding: 18px 20px; display: grid; gap: 14px;
+  grid-template-columns: minmax(0, 1fr);   /* 긴 diff 한 줄이 카드를 옆으로 늘리지 않게 (안에서 가로 스크롤) */
 }
 .issue-head { display: grid; gap: 4px; }
 .issue-no { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--ink-3); }
