@@ -515,12 +515,13 @@ function statusNotice(r) {
 
 function bodySection(r) {
   const issues = r.issues || [];
-  const left = issues.length
-    ? `<h2 class="section-title">불일치 항목 <span class="count-chip">${issues.length}</span></h2>` +
-      issues.map((iss, i) => issueCard(r, iss, i)).join("")
+  // 제목은 두 칸 위에 따로 둬서, 오른쪽 카드가 첫 불일치 카드와 같은 높이에서 시작하게 한다
+  const title = issues.length
+    ? `<h2 class="section-title">불일치 항목 <span class="count-chip">${issues.length}</span></h2>`
     : "";
+  const left = issues.map((iss, i) => issueCard(r, iss, i)).join("");
   const right = designDocsCard(r) + summaryCard(r) + impactCard(r);
-  return `<div class="detail-grid"><div class="col">${left}</div><aside class="col">${right}</aside></div>`;
+  return `<div class="detail-grid">${title}<div class="col">${left}</div><aside class="col">${right}</aside></div>`;
 }
 
 function issueCard(r, iss, i) {
