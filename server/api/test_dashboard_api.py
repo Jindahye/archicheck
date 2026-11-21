@@ -397,6 +397,48 @@ def test_fix_history_not_added_on_first_fix_or_failure(fix_client, store, sample
     assert "fixHistory" not in store.get(sample["id"])["issues"][0]
 
 
+# --- 불일치 아님 (dismiss) ---
+
+
+def test_fix_dismiss_records_direction_without_ai(fix_client, store, sample, github, generator):
+    store.save(sample)
+    r = fix_client.post(fix_url(), json={"direction": "dismiss"})
+    assert r.status_code == 200 and r.json() == {"direction": "dismiss", "fix": None}
+    assert github.calls == [] and generator.calls == []
+    issue = store.get(sample["id"])["issues"][0]
+    assert issue["direction"] == "dismiss" and issue["fix"] is None
+
+
+def test_fix_dismiss_keeps_previous_fix_in_history(fix_client, store, sample):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    fix_client.post(fix_url(), json={"direction": "dismiss"})
+    issue = store.get(sample["id"])["issues"][0]
+    assert issue["fix"] is None and issue["fixHistory"][0]["fix"] == CODE_FIX
+
+
+def test_fix_dismiss_then_choose_code_generates(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "dismiss"})
+    r = fix_client.post(fix_url(), json={"direction": "code"})
+    assert r.json() == {"direction": "code", "fix": CODE_FIX}
+    assert [c[0] for c in generator.calls] == ["code"]
+
+
+def test_fix_dismiss_counts_toward_resolved(fix_client, store, sample):
+    store.save(two_issue_report(sample))
+    fix_client.post(fix_url(), json={"direction": "code"})
+    assert store.get(sample["id"])["status"] == "done"
+    fix_client.post(fix_url(issue_id="iss_2"), json={"direction": "dismiss"})
+    assert store.get(sample["id"])["status"] == "resolved"
+
+
+def test_fix_dismiss_needs_no_design_ref(fix_client, store, sample):
+    report = {**sample, "issues": [{**sample["issues"][0], "designRef": "", "codeRef": ""}]}
+    store.save(report)
+    assert fix_client.post(fix_url(), json={"direction": "dismiss"}).status_code == 200
+
+
 def test_fix_status_becomes_resolved_when_all_issues_have_fix(fix_client, store, sample):
     store.save(two_issue_report(sample))
     fix_client.post(fix_url(issue_id="iss_1"), json={"direction": "code"})

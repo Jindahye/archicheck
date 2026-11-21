@@ -79,12 +79,13 @@ class DashboardAPI:
     ) -> dict:
         """수정 방향을 정하고 수정안을 만들어 리포트에 저장한다 (3.4).
 
-        direction: "code" 또는 "doc". 반환: {"direction": ..., "fix": ...}
+        direction: "code", "doc", "dismiss"(불일치 아님). 반환: {"direction": ..., "fix": ...}
 
         - 같은 issue에 같은 direction으로 다시 요청하면 저장된 수정안을 그대로 돌려준다.
         - regenerate=True(재분석)면 저장된 값을 쓰지 않고 새로 만들어 덮어쓴다. feedback은 생성 프롬프트에 넣는다.
         - direction이 바뀌면 새로 만들어 기존 값을 덮어쓴다.
         - 수정안 생성이나 검증에 실패하면 아무것도 저장하지 않는다.
+        - dismiss는 AI를 부르지 않고 방향만 기록한다 (fix는 null, 이전 수정안은 fixHistory에 남김).
         """
         report = self.get_report(report_id)
         issue = _find_issue(report, issue_id)
@@ -93,6 +94,11 @@ class DashboardAPI:
             raise HTTPException(
                 status_code=409, detail=f"Report is {report.get('status')}; fix not available"
             )
+
+        if direction == "dismiss":
+            if issue.get("direction") == "dismiss":
+                return {"direction": "dismiss", "fix": None}
+            return self._save_choice(report_id, issue_id, "dismiss", None)
 
         if not regenerate and issue.get("direction") == direction and issue.get("fix"):
             return {"direction": direction, "fix": issue["fix"]}
@@ -127,6 +133,10 @@ class DashboardAPI:
 
         fix = _validate_fix(direction, raw)  # 형식이 틀리면 저장 전에 502
 
+        return self._save_choice(report_id, issue_id, direction, fix)
+
+    def _save_choice(self, report_id: str, issue_id: str, direction: str, fix: dict | None) -> dict:
+        """방향과 수정안을 저장한다. 기존 수정안은 fixHistory에 남기고, 모두 조치되면 resolved로 바꾼다."""
         # 생성하는 동안 리포트가 바뀌었을 수 있으므로 다시 읽어 이 issue만 갱신한다.
         latest = self.get_report(report_id)
         target = _find_issue(latest, issue_id)
@@ -136,7 +146,7 @@ class DashboardAPI:
             target["fixHistory"] = [old, *(target.get("fixHistory") or [])][:FIX_HISTORY_MAX]
         target["direction"] = direction
         target["fix"] = fix
-        if all(i.get("fix") for i in latest.get("issues", [])):
+        if all(i.get("fix") or i.get("direction") == "dismiss" for i in latest.get("issues", [])):
             latest["status"] = "resolved"
         self.store.save(latest)
         return {"direction": direction, "fix": fix}
@@ -224,7 +234,7 @@ class LoginRequest(BaseModel):
 
 
 class FixRequest(BaseModel):
-    direction: Literal["code", "doc"]
+    direction: Literal["code", "doc", "dismiss"]  # dismiss: 불일치 아님 (AI 호출 없음)
     regenerate: bool = False  # 재분석: 저장된 수정안이 있어도 새로 만든다
     feedback: str | None = Field(default=None, max_length=500)  # 재분석 요청 문구 (선택)
 

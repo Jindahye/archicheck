@@ -215,7 +215,7 @@ const STATUS = {
   resolved:  { label: "조치 완료", icon: "check" },
   failed:    { label: "실패", icon: "alert" },
 };
-const DIRECTION_LABEL = { code: "코드 수정", doc: "문서 개정" };
+const DIRECTION_LABEL = { code: "코드 수정", doc: "문서 개정", dismiss: "불일치 아님" };   // dismiss: AI 오탐으로 판단 (3.3)
 
 const ICONS = {
   spinner: `<path d="M8 2a6 6 0 1 0 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
@@ -278,7 +278,8 @@ function issueStats(r) {
   const pending = issues.filter((i) => !i.direction).length;
   const code = issues.filter((i) => i.direction === "code").length;
   const doc = issues.filter((i) => i.direction === "doc").length;
-  return { total, pending, code, doc };
+  const dismiss = issues.filter((i) => i.direction === "dismiss").length;
+  return { total, pending, code, doc, dismiss };
 }
 
 // ===== 테마 전환 =====
@@ -501,10 +502,11 @@ function headSection(r) {
 function progressBlock(r) {
   const s = issueStats(r);
   if (r.status === "analyzing" || r.status === "failed" || s.total === 0) return "";
-  const decided = s.code + s.doc;
+  const decided = s.code + s.doc + s.dismiss;
   const parts = [
     ["seg-code", s.code, "코드 수정"],
     ["seg-doc", s.doc, "문서 개정"],
+    ["seg-dismiss", s.dismiss, "불일치 아님"],
     ["seg-pending", s.pending, "결정 대기"],
   ].filter((p) => p[1] > 0);
   const aria = parts.map((p) => `${p[2]} ${p[1]}건`).join(", ");
@@ -517,6 +519,7 @@ function progressBlock(r) {
       <div class="legend">
         <span><i class="seg-code"></i>코드 수정 ${s.code}</span>
         <span><i class="seg-doc"></i>문서 개정 ${s.doc}</span>
+        ${s.dismiss ? `<span><i class="seg-dismiss"></i>불일치 아님 ${s.dismiss}</span>` : ""}
         <span><i class="seg-pending"></i>결정 대기 ${s.pending}</span>
       </div>
     </div>`;
@@ -581,6 +584,7 @@ function issueCard(r, iss, i) {
       <div class="actions">
         <button type="button" class="btn code" data-dir="code" aria-pressed="${dir === "code"}">코드 수정안 받기</button>
         <button type="button" class="btn doc" data-dir="doc" aria-pressed="${dir === "doc"}">문서 개정안 받기</button>
+        <button type="button" class="btn dismiss" data-dir="dismiss" aria-pressed="${dir === "dismiss"}" title="AI가 잘못 찾은 항목이면 조치하지 않고 넘깁니다">불일치 아님</button>
         <span class="choice">${dir ? `${DIRECTION_LABEL[dir]}으로 정했습니다` : "코드를 고칠지, 설계 문서를 고칠지 골라 주세요"}</span>
       </div>
       <div class="fix-panel"></div>
@@ -657,9 +661,13 @@ function bindIssueButtons(r) {
       buttons.forEach((b) => (b.disabled = true));
       choice.classList.remove("error");
       const label = `${DIRECTION_LABEL[direction]}안`;
-      choice.textContent = regenerate ? `${label}을 재분석하는 중입니다…` : `${label}을 만드는 중입니다…`;
-      // 예전 수정안 대신 진행 표시를 보여 준다 (AI 응답에 10~30초 걸릴 수 있음)
-      panel.innerHTML = `<div class="fix-loading" role="status">${icon("spinner")}<span>AI가 ${label}을 ${regenerate ? "다시 " : ""}만드는 중입니다. 10~30초 정도 걸릴 수 있습니다.</span></div>`;
+      if (direction === "dismiss") {
+        choice.textContent = "처리하는 중입니다…";   // AI를 부르지 않아 금방 끝난다
+      } else {
+        choice.textContent = regenerate ? `${label}을 재분석하는 중입니다…` : `${label}을 만드는 중입니다…`;
+        // 예전 수정안 대신 진행 표시를 보여 준다 (AI 응답에 10~30초 걸릴 수 있음)
+        panel.innerHTML = `<div class="fix-loading" role="status">${icon("spinner")}<span>AI가 ${label}을 ${regenerate ? "다시 " : ""}만드는 중입니다. 10~30초 정도 걸릴 수 있습니다.</span></div>`;
+      }
       try {
         const result = await api.requestFix(r.id, iss.id, direction, { regenerate, feedback: feedback ? feedback.value : "" });
         // 서버와 같은 규칙으로 덮어쓰기 전 수정안을 이력에 남긴다 (3.3 fixHistory, 최신순 최대 5개)
@@ -691,7 +699,7 @@ function bindIssueButtons(r) {
       btn.addEventListener("click", () => {
         const direction = btn.dataset.dir;
         // 이미 고른 방향이고 수정안도 있으면 서버가 저장된 값을 그대로 주므로 부르지 않는다
-        if (iss.direction === direction && iss.fix) return;
+        if (iss.direction === direction && (iss.fix || direction === "dismiss")) return;
         run(direction, false);
       });
     });
@@ -738,7 +746,7 @@ function renderHistory(host, iss) {
 // 모든 불일치에 수정안이 생기면 서버가 리포트를 resolved로 바꾼다 (PR #6) → 상단 배지도 바로 바꾼다
 function refreshStatus(r) {
   const issues = r.issues || [];
-  if (r.status !== "done" || !issues.length || !issues.every((i) => i.fix)) return;
+  if (r.status !== "done" || !issues.length || !issues.every((i) => i.fix || i.direction === "dismiss")) return;
   r.status = "resolved";
   const badge = document.querySelector(".report-head .status");
   if (badge) badge.outerHTML = statusBadge("resolved");
@@ -751,6 +759,10 @@ function refreshProgress(r) {
 
 // 수정안 패널: ⑤가 window.renderFixPanel(issue, element)를 만들면 그걸 사용한다.
 function showFix(iss, panel) {
+  if (iss.direction === "dismiss") {
+    panel.innerHTML = `<div class="dismiss-note">불일치가 아닌 것으로 처리했습니다. 다시 보니 조치가 필요하면 [코드 수정안 받기]나 [문서 개정안 받기]를 누르세요.</div>`;
+    return;
+  }
   if (typeof window.renderFixPanel === "function") {
     window.renderFixPanel(iss, panel);
     return;

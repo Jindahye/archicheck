@@ -228,6 +228,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .seg-code { background: var(--ink-2); }
 .seg-doc { background: var(--accent); }
 .seg-pending { background: var(--crit); opacity: .35; }
+.seg-dismiss { background: var(--neutral); }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--ink-2); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 
@@ -283,6 +284,11 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .btn:hover { border-color: var(--ink-3); background: var(--line-soft); }
 .btn[aria-pressed="true"].code { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .btn[aria-pressed="true"].doc { background: var(--accent-strong); color: #fff; border-color: var(--accent-strong); }
+/* 불일치 아님 (dismiss): 조치하지 않는 선택이라 회색으로 */
+.btn.dismiss { color: var(--ink-2); }
+.btn[aria-pressed="true"].dismiss { background: var(--neutral); color: var(--surface); border-color: var(--neutral); }
+.issue[data-direction="dismiss"] .issue-head { opacity: .6; }
+.dismiss-note { font-size: var(--fs-sm); color: var(--ink-2); padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--radius); background: var(--paper); }
 .btn:disabled { opacity: .55; cursor: progress; }
 .choice { font-size: var(--fs-sm); color: var(--ink-3); }
 .choice.error { color: var(--crit); }

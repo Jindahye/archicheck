@@ -111,20 +111,21 @@ test.describe("샘플/API 모드 자동 전환", () => {
 test.describe("화면 표시 도우미", () => {
   const { app } = loadApp();
 
-  test.it("issueStats: 불일치 전체·결정 대기·코드 수정·문서 개정 개수를 센다", () => {
+  test.it("issueStats: 불일치 전체·결정 대기·코드 수정·문서 개정·불일치 아님 개수를 센다", () => {
     const report = {
       issues: [
         { id: "iss_1", direction: null },
         { id: "iss_2", direction: "code" },
         { id: "iss_3", direction: "doc" },
         { id: "iss_4", direction: "doc" },
+        { id: "iss_5", direction: "dismiss" },
       ],
     };
-    assert.deepEqual({ ...app.issueStats(report) }, { total: 4, pending: 1, code: 1, doc: 2 });
+    assert.deepEqual({ ...app.issueStats(report) }, { total: 5, pending: 1, code: 1, doc: 2, dismiss: 1 });
   });
 
   test.it("issueStats: issues가 없으면 모두 0 (3.3 형식에 없는 필드는 쓰지 않는다)", () => {
-    assert.deepEqual({ ...app.issueStats({ issueCount: 9 }) }, { total: 0, pending: 0, code: 0, doc: 0 });
+    assert.deepEqual({ ...app.issueStats({ issueCount: 9 }) }, { total: 0, pending: 0, code: 0, doc: 0, dismiss: 0 });
   });
 
   test.it("statusBadge: 3.3의 status 4가지를 한국어로 보여 준다", () => {
@@ -361,6 +362,14 @@ test.describe("조치 완료 반영", () => {
   test.it("모든 불일치에 수정안이 생기면 상태와 상단 배지를 조치 완료로 바꾼다", () => {
     const { app, badge } = withBadge();
     const report = { status: "done", issues: [{ fix: { diff: "x" } }, { fix: { before: "a", after: "b", mermaid: null } }] };
+    app.refreshStatus(report);
+    assert.equal(report.status, "resolved");
+    assert.match(badge.outerHTML, /조치 완료/);
+  });
+
+  test.it("불일치 아님(dismiss)으로 처리한 항목도 조치 완료로 센다", () => {
+    const { app, badge } = withBadge();
+    const report = { status: "done", issues: [{ fix: { diff: "x" } }, { direction: "dismiss", fix: null }] };
     app.refreshStatus(report);
     assert.equal(report.status, "resolved");
     assert.match(badge.outerHTML, /조치 완료/);
