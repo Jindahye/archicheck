@@ -62,9 +62,22 @@
   margin: 0; padding: 6px 0; overflow-x: auto;
   font-family: var(--font-mono); font-size: var(--fs-xs); line-height: 1.6;
 }
-.fp-line { display: block; padding: 0 10px; white-space: pre; }
+/* 문서 문구는 문장이라 줄을 바꿔 보여 준다 (코드 diff는 가로 스크롤 유지) */
+.fp-line { display: block; padding: 0 10px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .fp-line.fp-del { background: var(--crit-bg); }
 .fp-line.fp-add { background: var(--ok-bg); }
+
+/* 어두운 테마: --crit-bg·--ok-bg가 너무 어두워 바뀐 줄이 안 보이므로 더 진하게 */
+:root[data-theme="dark"] .fp-line.fp-del,
+:root[data-theme="dark"] .fp-diff tr.fp-del td { background: color-mix(in srgb, var(--crit) 22%, transparent); }
+:root[data-theme="dark"] .fp-line.fp-add,
+:root[data-theme="dark"] .fp-diff tr.fp-add td { background: color-mix(in srgb, var(--ok) 22%, transparent); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .fp-line.fp-del,
+  :root:not([data-theme="light"]) .fp-diff tr.fp-del td { background: color-mix(in srgb, var(--crit) 22%, transparent); }
+  :root:not([data-theme="light"]) .fp-line.fp-add,
+  :root:not([data-theme="light"]) .fp-diff tr.fp-add td { background: color-mix(in srgb, var(--ok) 22%, transparent); }
+}
 .fp-side-empty { padding: 8px 10px; color: var(--ink-3); font-size: var(--fs-xs); }
 
 /* ---- 다이어그램 ---- */
