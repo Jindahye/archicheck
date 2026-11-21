@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from server.analyzer.analysis_cache import AnalysisCache
 from server.analyzer.llm_call import LLMCallError, call_structured, load_prompt, make_client
 
 
@@ -43,6 +44,7 @@ class ConformanceAnalyzer:
         # client를 넘기지 않으면 GEMINI_API_KEY 환경 변수로 만든다. 테스트에서는 가짜 client를 넘긴다.
         self.client = client or make_client()
         self.system_prompt = load_prompt("conformance_analysis.md")
+        self.cache = AnalysisCache()
 
     def analyze(self, diff: str, design_docs: list[dict], commits: list[str]) -> dict:
         """diff와 설계 문서를 비교해 3.3 리포트의 분석 필드를 만든다.
@@ -61,6 +63,11 @@ class ConformanceAnalyzer:
         if not design_docs:
             raise AnalysisError("설계 문서가 없습니다. .archicheck.yml로 경로를 지정하세요.")
 
+        cache_key = AnalysisCache.key(diff, design_docs, commits)
+        cached = self.cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         try:
             result = call_structured(
                 self.client,
@@ -71,7 +78,7 @@ class ConformanceAnalyzer:
         except LLMCallError as e:
             raise AnalysisError(str(e)) from e
 
-        return {
+        output = {
             "designDocs": [d["path"] for d in design_docs],
             "summary": result.summary.model_dump(),
             "impact": [i.model_dump() for i in result.impact],
@@ -80,6 +87,8 @@ class ConformanceAnalyzer:
                 for n, issue in enumerate(result.issues, start=1)
             ],
         }
+        self.cache.put(cache_key, output)
+        return output
 
 
 def _build_user_message(diff: str, design_docs: list[dict], commits: list[str]) -> str:
