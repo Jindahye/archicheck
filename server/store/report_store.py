@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -60,6 +60,20 @@ class ReportStore:
                 "SELECT data FROM reports WHERE id = ?", (report_id,)
             ).fetchone()
         return json.loads(row[0]) if row else None
+
+    @contextmanager
+    def edit(self, report_id: str):
+        """리포트를 읽고 저장할 때까지 다른 쓰기 작업을 기다리게 합니다."""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT data FROM reports WHERE id = ?", (report_id,)).fetchone()
+            report = json.loads(row[0]) if row else None
+            yield report
+            if report is not None:
+                conn.execute(
+                    "UPDATE reports SET data = ? WHERE id = ?",
+                    (json.dumps(report, ensure_ascii=False), report_id),
+                )
 
     def list(self) -> list[dict]:
         """모든 리포트를 createdAt 최신순으로 반환. 없으면 빈 리스트."""

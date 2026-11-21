@@ -24,22 +24,40 @@ function detectSampleMode() {
 }
 
 // ===== 데이터 불러오기 (API 연결은 여기만 고치면 된다) =====
+function sampleReport(original) {
+  try {
+    const saved = sessionStorage.getItem(`archicheck-sample-report:${original.id}`);
+    if (saved) return JSON.parse(saved);
+  } catch (_) {}
+  return structuredClone(original);
+}
+
+function saveSampleReport(report) {
+  sessionStorage.setItem(`archicheck-sample-report:${report.id}`, JSON.stringify(report));
+}
+
 const api = {
   async listReports() {
-    if (USE_SAMPLE) return structuredClone(window.SAMPLE_REPORTS);
+    if (USE_SAMPLE) return window.SAMPLE_REPORTS.map(sampleReport);
     return getJson(`${API_BASE}/api/reports`);
   },
   async getReport(id) {
     if (USE_SAMPLE) {
       const r = window.SAMPLE_REPORTS.find((x) => x.id === id);
       if (!r) throw new Error("리포트를 찾을 수 없습니다. 분석 이력에서 다시 선택하세요.");
-      return structuredClone(r);
+      return sampleReport(r);
     }
     return getJson(`${API_BASE}/api/reports/${encodeURIComponent(id)}`);
   },
   // 재분석: { regenerate: true, feedback: "..." }를 함께 보내면 저장된 수정안 대신 새로 만든다 (설계 문서 3.4)
   async requestFix(reportId, issueId, direction, { regenerate = false, feedback = "" } = {}) {
-    if (USE_SAMPLE) return { direction, fix: null };   // 샘플 모드: 서버 호출 없이 선택만 반영
+    if (USE_SAMPLE) {
+      const report = await this.getReport(reportId);
+      const issue = report.issues.find((item) => item.id === issueId);
+      if (issue.direction !== direction) Object.assign(issue, { direction, fix: null });
+      saveSampleReport(report);
+      return { direction, fix: issue.fix, status: report.status };
+    }
     const body = { direction };
     if (regenerate) {
       body.regenerate = true;
@@ -49,6 +67,24 @@ const api = {
       `${API_BASE}/api/reports/${encodeURIComponent(reportId)}/issues/${encodeURIComponent(issueId)}/fix`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
     );
+  },
+  async setIssueResolution(reportId, issue, resolved) {
+    if (USE_SAMPLE) {
+      const report = await this.getReport(reportId);
+      const resolutions = Object.fromEntries(report.issues.map((item) => {
+        item.resolved = item.id === issue.id ? resolved : issueResolved(report, item);
+        return [item.id, item.resolved];
+      }));
+      report.status = Object.values(resolutions).every(Boolean) ? "resolved" : "done";
+      saveSampleReport(report);
+      return { status: report.status, resolutions };
+    }
+    const reviewed = resolved ? { direction: issue.direction, fix: issue.fix } : undefined;
+    return getJson(`${API_BASE}/api/reports/${encodeURIComponent(reportId)}/issues/${encodeURIComponent(issue.id)}/resolution`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolved, reviewed }),
+    });
   },
 };
 
@@ -272,6 +308,10 @@ function markSuperseded(reports) {
 }
 
 // 리포트의 불일치 집계
+function issueResolved(report, issue) {
+  return issue.resolved ?? (report.status === "resolved");
+}
+
 function issueStats(r) {
   const issues = r.issues || [];
   const total = issues.length;
@@ -279,7 +319,8 @@ function issueStats(r) {
   const code = issues.filter((i) => i.direction === "code").length;
   const doc = issues.filter((i) => i.direction === "doc").length;
   const dismiss = issues.filter((i) => i.direction === "dismiss").length;
-  return { total, pending, code, doc, dismiss };
+  const resolved = issues.filter((i) => issueResolved(r, i)).length;
+  return { total, pending, code, doc, dismiss, resolved };
 }
 
 // ===== 테마 전환 =====
@@ -428,10 +469,10 @@ function renderRows() {
     } else if (s.pending > 0 && r.superseded) {
       issuesCell = `<span class="muted">${s.total}건 (최신 커밋에서 확인)</span>`;
     } else if (s.pending > 0) {
-      issuesCell = `<span class="pending-chip">결정 대기 ${s.pending}</span><span class="muted">/ 전체 ${s.total}건</span>`;
+      issuesCell = `<span class="pending-chip">결정 대기 ${s.pending}</span><span class="muted">조치 완료 ${s.resolved} / ${s.total}건</span>`;
       attention = "crit";
     } else {
-      issuesCell = `<span class="muted">${s.total}건 모두 결정</span>`;
+      issuesCell = `<span class="muted">조치 완료 ${s.resolved} / ${s.total}건</span>`;
     }
     if (r.status === "analyzing") attention = "warn";
     if (r.superseded) attention = "";   // 이전 커밋 리포트는 강조하지 않는다
@@ -498,29 +539,23 @@ function headSection(r) {
     </section>`;
 }
 
-// 결정 진행도: 얇은 분할 막대 (코드 수정 / 문서 개정 / 결정 대기)
+// 조치 완료 진행도
 function progressBlock(r) {
   const s = issueStats(r);
   if (r.status === "analyzing" || r.status === "failed" || s.total === 0) return "";
-  const decided = s.code + s.doc + s.dismiss;
+  const remaining = s.total - s.resolved;
   const parts = [
-    ["seg-code", s.code, "코드 수정"],
-    ["seg-doc", s.doc, "문서 개정"],
-    ["seg-dismiss", s.dismiss, "불일치 아님"],
-    ["seg-pending", s.pending, "결정 대기"],
+    ["seg-resolved", s.resolved, "조치 완료"],
+    ["seg-open", remaining, "미완료"],
   ].filter((p) => p[1] > 0);
-  const aria = parts.map((p) => `${p[2]} ${p[1]}건`).join(", ");
   return `
     <div class="progress">
-      <div class="progress-text">불일치 <b>${s.total}건</b> 중 <b>${decided}건</b> 수정 방향을 정했습니다.</div>
-      <div class="segbar" role="img" aria-label="${aria}">
+      <div class="progress-text">불일치 <b>${s.total}건</b> 중 <b>${s.resolved}건</b> 조치 완료</div>
+      <div class="segbar" role="progressbar" aria-label="조치 완료" aria-valuenow="${s.resolved}" aria-valuemax="${s.total}">
         ${parts.map((p) => `<span class="${p[0]}" style="flex:${p[1]}" title="${p[2]} ${p[1]}건"></span>`).join("")}
       </div>
       <div class="legend">
-        <span><i class="seg-code"></i>코드 수정 ${s.code}</span>
-        <span><i class="seg-doc"></i>문서 개정 ${s.doc}</span>
-        ${s.dismiss ? `<span><i class="seg-dismiss"></i>불일치 아님 ${s.dismiss}</span>` : ""}
-        <span><i class="seg-pending"></i>결정 대기 ${s.pending}</span>
+        ${parts.map(([cls, count, label]) => `<span><i class="${cls}"></i>${label} ${count}</span>`).join("")}
       </div>
     </div>`;
 }
@@ -595,6 +630,10 @@ function issueCard(r, iss, i) {
           placeholder="예: 새 클래스를 만들지 말고 기존 GitHubClient를 쓰도록 고쳐 주세요"></textarea>
         <button type="button" class="btn regen-btn">재분석</button>
       </details>
+      <div class="actions issue-resolution">
+        <button type="button" class="btn primary" data-resolution disabled>조치 완료</button>
+        <span class="choice" data-resolution-note role="status"></span>
+      </div>
       <div class="history-host"></div>
     </article>`;
 }
@@ -645,20 +684,77 @@ function impactCard(r) {
 }
 
 function bindIssueButtons(r) {
+  let updatingResolution = false;
+  const controls = [];
+  const syncAll = (updateNotes = false) => controls.forEach((sync) => sync(updateNotes));
+
   document.querySelectorAll(".issue").forEach((card) => {
     const iss = r.issues.find((x) => x.id === card.dataset.issue);
     const panel = card.querySelector(".fix-panel");
     const choice = card.querySelector(".choice");
-    const buttons = card.querySelectorAll(".btn");   // 방향 버튼 2개 + 재분석 버튼
     const regen = card.querySelector(".regen");
     const feedback = card.querySelector(".regen-input");
+    const regenBtn = card.querySelector(".regen-btn");
+    const buttons = card.querySelectorAll("[data-dir]");
+    const resolutionButton = card.querySelector("[data-resolution]");
+    const note = card.querySelector("[data-resolution-note]");
+    const editButtons = regenBtn ? [...buttons, regenBtn] : buttons;
+    let generating = false;
+
+    function syncCard(updateNote = false) {
+      const resolved = issueResolved(r, iss);
+      const ready = iss.direction && (USE_SAMPLE || iss.fix || iss.direction === "dismiss");
+      resolutionButton.textContent = resolved ? "조치 완료 취소" : "조치 완료";
+      resolutionButton.classList.toggle("primary", !resolved);
+      resolutionButton.disabled = updatingResolution || generating || (!resolved && !ready);
+      editButtons.forEach((button) => (button.disabled = updatingResolution || generating));
+      if (updateNote) showResolutionNote();
+    }
+
+    function showResolutionNote() {
+      note.classList.remove("error");
+      note.textContent = issueResolved(r, iss)
+        ? "조치 완료로 기록했습니다."
+        : "수정안을 확인한 뒤 조치 완료를 눌러 주세요.";
+    }
+
+    controls.push(syncCard);
+    syncCard(true);
+
+    resolutionButton.addEventListener("click", async () => {
+      if (resolutionButton.disabled) return;
+      const resolved = !issueResolved(r, iss);
+      updatingResolution = true;
+      syncAll();
+      note.classList.remove("error");
+      note.textContent = resolved ? "조치 완료를 기록하는 중입니다…" : "조치 완료를 취소하는 중입니다…";
+      try {
+        const result = await api.setIssueResolution(r.id, iss, resolved);
+        r.issues.forEach((item) => (item.resolved = result.resolutions[item.id]));
+        refreshStatus(r, result.status);
+        refreshProgress(r);
+        syncAll(true);
+      } catch (e) {
+        note.classList.add("error");
+        const action = resolved ? "기록" : "취소";
+        note.textContent = e.status === 409
+          ? "수정안 상태가 바뀌었습니다. 새로 고침한 뒤 다시 확인해 주세요."
+          : `조치 완료를 ${action}하지 못했습니다. 다시 시도해 주세요.`;
+      } finally {
+        updatingResolution = false;
+        syncAll();
+      }
+    });
+
     const historyHost = card.querySelector(".history-host");
     if (iss.direction) showFix(iss, panel);
     renderHistory(historyHost, iss);
 
     // 수정안 요청. regenerate면 저장된 수정안이 있어도 새로 만든다 (재분석)
     async function run(direction, regenerate) {
-      buttons.forEach((b) => (b.disabled = true));
+      if (updatingResolution || generating) return;
+      generating = true;
+      syncCard();
       choice.classList.remove("error");
       const label = `${DIRECTION_LABEL[direction]}안`;
       if (direction === "dismiss") {
@@ -674,6 +770,11 @@ function bindIssueButtons(r) {
         iss.fixHistory = pushFixHistory(iss, new Date().toISOString());
         iss.direction = result.direction ?? direction;
         iss.fix = result.fix ?? null;
+        // 서버와 같은 규칙 (3.3 issues[].resolved): 새 수정안은 확인 전이라 미완료, dismiss는 바로 완료.
+        // 예전 resolved 리포트는 다른 항목의 완료 상태를 먼저 채워 둔다.
+        if (r.status === "resolved") r.issues.forEach((item) => { if (item.resolved === undefined) item.resolved = true; });
+        iss.resolved = iss.direction === "dismiss";
+        refreshStatus(r, result.status ?? (r.issues.every((item) => item.resolved) ? "resolved" : "done"));
         renderHistory(historyHost, iss);
         card.dataset.direction = iss.direction;
         buttons.forEach((b) => b.dataset.dir && b.setAttribute("aria-pressed", b.dataset.dir === iss.direction));
@@ -682,7 +783,7 @@ function bindIssueButtons(r) {
         if (regen) regen.hidden = !iss.fix;
         if (regenerate && feedback) { feedback.value = ""; regen.open = false; }
         refreshProgress(r);
-        refreshStatus(r);
+        syncAll(true);
       } catch (e) {
         // 실패하면 서버는 아무것도 저장하지 않는다 → 이전 선택과 수정안을 다시 보여 준다
         if (iss.direction) showFix(iss, panel);
@@ -690,21 +791,20 @@ function bindIssueButtons(r) {
         choice.classList.add("error");
         choice.textContent = fixErrorMessage(e);
       } finally {
-        buttons.forEach((b) => (b.disabled = false));
+        generating = false;
+        syncCard();
       }
     }
 
     buttons.forEach((btn) => {
-      if (!btn.dataset.dir) return;   // 재분석 버튼은 아래에서 따로 연결
       btn.addEventListener("click", () => {
         const direction = btn.dataset.dir;
         // 이미 고른 방향이고 수정안도 있으면 서버가 저장된 값을 그대로 주므로 부르지 않는다
         if (iss.direction === direction && (iss.fix || direction === "dismiss")) return;
-        run(direction, false);
+        return run(direction, false);
       });
     });
 
-    const regenBtn = card.querySelector(".regen-btn");
     if (regenBtn) regenBtn.addEventListener("click", () => { if (iss.direction) run(iss.direction, true); });
   });
 }
@@ -743,13 +843,11 @@ function renderHistory(host, iss) {
   });
 }
 
-// 모든 불일치에 수정안이 생기면 서버가 리포트를 resolved로 바꾼다 (PR #6) → 상단 배지도 바로 바꾼다
-function refreshStatus(r) {
-  const issues = r.issues || [];
-  if (r.status !== "done" || !issues.length || !issues.every((i) => i.fix || i.direction === "dismiss")) return;
-  r.status = "resolved";
+function refreshStatus(r, status) {
+  if (!status || r.status === status) return;
+  r.status = status;
   const badge = document.querySelector(".report-head .status");
-  if (badge) badge.outerHTML = statusBadge("resolved");
+  if (badge) badge.outerHTML = statusBadge(status);
 }
 
 function refreshProgress(r) {

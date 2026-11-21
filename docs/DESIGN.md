@@ -23,6 +23,7 @@
 | v1.1 | 2026.11.21 | 진다혜 | 3.3 `issues[].fixHistory`(이전 수정안 보관) 추가, 4.1 테스트 수 |
 | v1.2 | 2026.11.21 | 진다혜 | 분석 실패 종류 저장·안내: 3.3 `error` 필드, 3.1 실패 처리, 4.2 발견한 문제 조치, 6장 해당 과제 완료 처리 |
 | v1.3 | 2026.11.21 | 진다혜 | 불일치 아님(오탐) 처리: 3.3 `direction`에 `dismiss`, `resolved` 조건, 3.4 수정안 API, 4.1 테스트 수 |
+| v1.4 | 2026.11.21 | 윤정은, 진다혜 | 항목별 조치 완료·취소(PR #24): 3.3 `issues[].resolved`, `resolved` 상태 조건, 3.4 조치 완료 API. 불일치 아님은 바로 완료, 수정안을 새로 만들면 미완료로 되돌림. 4.1 테스트 수 |
 
 ## 1. 요구사항
 
@@ -342,11 +343,12 @@ classDiagram
 | 필드 | 설명 |
 | --- | --- |
 | `headSha` | 분석한 PR의 마지막 커밋 |
-| `status` | `analyzing`(분석 중) / `done`(완료) / `resolved`(모든 불일치 조치 완료: 수정안이 있거나 `dismiss`로 처리됨) / `failed`(분석 실패) |
+| `status` | `analyzing`(분석 중) / `done`(분석 완료) / `resolved`(불일치 항목이 있고 모두 조치 완료) / `failed`(분석 실패) |
 | `error` | (`failed`일 때만) 실패 종류. `no_design_doc`(설계 문서를 찾지 못함, 3.5) / `github_error`(GitHub에서 PR·파일 조회 실패) / `ai_error`(Gemini 분석 실패: 응답 지연, 사용량 초과, 형식 오류 등) / `internal`(그 밖의 서버 오류). PR 코멘트와 대시보드가 종류별 안내 문구를 보여 준다 |
 | `designDocs` | 비교에 사용한 설계 문서 경로 (3.5 탐색 결과) |
 | `summary`, `impact` | 보조 기능(FR-9, FR-10) 결과. 비어 있어도 된다 |
 | `issues[].direction` | 사용자 선택 전 `null`, 선택 후 `code`(코드 수정), `doc`(문서 개정), `dismiss`(불일치 아님: AI 오탐으로 판단해 조치하지 않음). `dismiss`면 `fix`는 `null`이고, 이전 수정안은 `fixHistory`에 남는다 |
+| `issues[].resolved` | (선택) 항목의 조치 완료 여부. 사용자가 수정안을 확인한 뒤 [조치 완료]로 `true`, [조치 완료 취소]로 `false`가 된다. `dismiss`로 처리하면 바로 `true`, 수정안을 새로 만들면(재분석, 방향 전환) 아직 확인하지 않았으므로 `false`로 돌아간다. 값이 없으면 리포트가 `resolved`일 때 완료로, 그 외에는 미완료로 본다 (이전 리포트 호환) |
 | `issues[].designRef` | 불일치 근거가 된 설계 문서 경로와 섹션 (문서 이름은 레포마다 다름) |
 | `issues[].fix` | 선택 후 생성된 수정안. `code`면 `{ "diff": "..." }`, `doc`이면 `{ "before": "...", "after": "...", "mermaid": "..." }` (다이어그램이 없으면 `mermaid`는 `null`) |
 | `issues[].fixHistory` | (선택) 이전 수정안 목록, 최신순 최대 5개. 재분석하거나 방향을 바꿔 `fix`를 덮어쓸 때 기존 값을 `{ "direction": "doc", "fix": {...}, "replacedAt": "2026-11-21T14:20:00+09:00" }`로 앞에 넣는다. 없으면 빈 목록으로 본다. 대시보드는 접어 두고 펼쳐 볼 수 있게 보여 준다 |
@@ -361,7 +363,10 @@ classDiagram
 | POST | `/api/logout` | 세션 | 세션 쿠키 삭제 |
 | GET | `/api/reports` | 세션 | 분석 이력 목록 |
 | GET | `/api/reports/{id}` | 세션 | 리포트 상세 |
-| POST | `/api/reports/{id}/issues/{issueId}/fix` | 세션 | 수정 방향 선택 및 수정안 생성. 요청 본문: `{ "direction": "code" }` 또는 `{ "direction": "doc" }`. 같은 방향으로 다시 요청하면 저장된 수정안을 돌려준다. **재분석:** `{ "direction": "doc", "regenerate": true, "feedback": "..." }`처럼 `regenerate`를 넣으면 저장된 값을 쓰지 않고 새로 만들어 덮어쓴다. `feedback`(선택, 500자 이하)은 사용자의 요청 문구로, 수정안 생성 프롬프트에 함께 넣는다. 두 칸을 빼면 기존과 같다. **불일치 아님:** `{ "direction": "dismiss" }`는 AI를 부르지 않고 방향만 기록한다. 나중에 `code`·`doc`을 다시 고르면 수정안을 새로 만든다 |
+| POST | `/api/reports/{id}/issues/{issueId}/fix` | 세션 | 수정 방향 선택 및 수정안 생성. 요청 본문: `{ "direction": "code" }` 또는 `{ "direction": "doc" }`. 같은 방향으로 다시 요청하면 저장된 수정안을 돌려준다. **재분석:** `{ "direction": "doc", "regenerate": true, "feedback": "..." }`처럼 `regenerate`를 넣으면 저장된 값을 쓰지 않고 새로 만들어 덮어쓴다. `feedback`(선택, 500자 이하)은 사용자의 요청 문구로, 수정안 생성 프롬프트에 함께 넣는다. 두 칸을 빼면 기존과 같다. **불일치 아님:** `{ "direction": "dismiss" }`는 AI를 부르지 않고 방향만 기록하며 항목을 조치 완료로 둔다. 나중에 `code`·`doc`을 다시 고르면 수정안을 새로 만든다. 응답은 `{ "direction", "fix", "status" }`다 |
+| PUT | `/api/reports/{id}/issues/{issueId}/resolution` | 세션 | 항목의 조치 완료·취소를 저장한다. 완료 요청은 `{ "resolved": true, "reviewed": { "direction": "code", "fix": { "diff": "..." } } }`(사용자가 확인한 수정안), 취소 요청은 `{ "resolved": false }`다. 성공하면 리포트 `status`와 항목별 완료 여부 `resolutions`를 돌려준다. 확인한 수정안이 없거나 저장된 수정안과 다르면 `409` |
+
+항목마다 수정안을 확인한 뒤 **조치 완료**를 누르고, 완료된 항목은 **조치 완료 취소**로 되돌릴 수 있다. 수정안 생성과 완료 상태 변경은 따로 저장한다. 모든 항목이 완료되면 리포트 `status`가 `resolved`가 된다. 상세 화면과 분석 이력은 저장된 항목 상태로 완료 건수를 보여 준다.
 
 #### 대시보드 인증
 
@@ -451,7 +456,7 @@ archicheck/
 
 | 대상 | 실행 | 테스트 수 (2026.11.21) |
 | --- | --- | --- |
-| 서버 (`server/` 전체) | `pytest` | 166 |
+| 서버 (`server/` 전체) | `pytest` | 171 |
 | 대시보드 화면 (`dashboard/app.js`) | `node --test dashboard/tests/app.test.js` | 38 |
 | 수정안 패널 (`dashboard/fix-panel.js`) | `node --test dashboard/tests/fix-panel.test.js` | 11 |
 

@@ -21,6 +21,7 @@ const SAMPLE_JS = fs.readFileSync(path.join(DASHBOARD, "sample-data.js"), "utf8"
 const EXPORTS = [
   "USE_SAMPLE", "api", "auth", "ApiError", "getJson", "reportErrorMessage", "fixErrorMessage",
   "requireLogin", "safeNextPage", "esc", "statusBadge", "formatDate", "githubLink", "githubAnchor", "markSuperseded", "issueStats",
+  "bindIssueButtons",
   "refreshStatus", "pushFixHistory", "statusNotice",
 ];
 
@@ -121,11 +122,11 @@ test.describe("화면 표시 도우미", () => {
         { id: "iss_5", direction: "dismiss" },
       ],
     };
-    assert.deepEqual({ ...app.issueStats(report) }, { total: 5, pending: 1, code: 1, doc: 2, dismiss: 1 });
+    assert.deepEqual({ ...app.issueStats(report) }, { total: 5, pending: 1, code: 1, doc: 2, dismiss: 1, resolved: 0 });
   });
 
   test.it("issueStats: issues가 없으면 모두 0 (3.3 형식에 없는 필드는 쓰지 않는다)", () => {
-    assert.deepEqual({ ...app.issueStats({ issueCount: 9 }) }, { total: 0, pending: 0, code: 0, doc: 0, dismiss: 0 });
+    assert.deepEqual({ ...app.issueStats({ issueCount: 9 }) }, { total: 0, pending: 0, code: 0, doc: 0, dismiss: 0, resolved: 0 });
   });
 
   test.it("statusBadge: 3.3의 status 4가지를 한국어로 보여 준다", () => {
@@ -282,14 +283,15 @@ test.describe("서버 API 연결", () => {
     assert.equal(env.requests[1].url, "/api/reports/" + encodeURIComponent("rpt 1/2"));
   });
 
-  test.it("수정안 요청: POST /api/reports/{id}/issues/{issueId}/fix에 { direction }을 보내고 { direction, fix }를 받는다", async () => {
+  test.it("수정안 요청에 방향을 보내고 수정안과 리포트 상태를 받는다", async () => {
     const fix = { diff: "--- a\n+++ b" };
-    const { app, env } = loadApp({ fetch: async () => response(200, { direction: "code", fix }) });
+    const payload = { direction: "code", fix, status: "done" };
+    const { app, env } = loadApp({ fetch: async () => response(200, payload) });
     const result = await app.api.requestFix("rpt_14_d4e5f6", "iss_1", "code");
     assert.equal(env.requests[0].url, "/api/reports/rpt_14_d4e5f6/issues/iss_1/fix");
     assert.equal(env.requests[0].method, "POST");
     assert.deepEqual(JSON.parse(env.requests[0].body), { direction: "code" });
-    assert.deepEqual(result, { direction: "code", fix });
+    assert.deepEqual(result, payload);
   });
 
   test.it("재분석: regenerate와 앞뒤 공백을 뺀 feedback을 함께 보낸다", async () => {
@@ -349,37 +351,115 @@ test.describe("오류 안내 문구", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 조치 완료 반영 (3.3: 모든 불일치에 수정안이 생기면 resolved)
+// 조치 완료 반영
 // ---------------------------------------------------------------------------
-test.describe("조치 완료 반영", () => {
-  function withBadge() {
-    const loaded = loadApp();
-    const badge = { outerHTML: "<span>분석 완료</span>" };
-    loaded.context.document.querySelector = (sel) => (sel === ".report-head .status" ? badge : null);
-    return { ...loaded, badge };
+test.describe("조치 완료와 취소", () => {
+  function reportWithControls({ resolutionStatus = 200, alreadyResolved = false } = {}) {
+    const fix = { diff: "x" };
+    const loaded = loadApp({
+      fetch: async (url, options) => {
+        if (url.endsWith("/fix")) return response(200, { direction: "code", fix, status: "done" });
+        const { resolved } = JSON.parse(options.body);
+        return response(resolutionStatus, {
+          status: resolved ? "resolved" : "done",
+          resolutions: { iss_1: resolved },
+        });
+      },
+    });
+    const issue = { id: "iss_1", direction: alreadyResolved ? "code" : null, fix: alreadyResolved ? fix : null };
+    const report = { id: "rpt", status: alreadyResolved ? "resolved" : "done", issues: [issue] };
+    const listeners = {};
+    const button = (name, dataset) => ({
+      dataset,
+      classList: { toggle: (key, value) => { resolve[key] = value; } },
+      addEventListener: (event, fn) => { listeners[name] = fn; },
+      setAttribute: () => {},
+    });
+    const resolve = button("resolve");
+    const code = button("code", { dir: "code" });
+    const badge = { outerHTML: loaded.app.statusBadge(report.status) };
+    const progress = {};
+    const note = { classList: { add() {}, remove() {} } };
+    const panel = {};
+    const card = {
+      dataset: { issue: "iss_1" },
+      querySelector: (sel) => ({
+        ".fix-panel": panel, ".choice": note, "[data-resolution]": resolve, "[data-resolution-note]": note,
+      })[sel],
+      querySelectorAll: () => [code],
+    };
+    const doc = loaded.context.document;
+    doc.querySelector = (sel) => ({
+      ".report-head .status": badge, ".report-head .progress": progress,
+    })[sel];
+    doc.querySelectorAll = () => [card];
+    loaded.app.bindIssueButtons(report);
+    return { ...loaded, report, issue, listeners, resolve, badge, progress, note, panel };
   }
 
-  test.it("모든 불일치에 수정안이 생기면 상태와 상단 배지를 조치 완료로 바꾼다", () => {
-    const { app, badge } = withBadge();
-    const report = { status: "done", issues: [{ fix: { diff: "x" } }, { fix: { before: "a", after: "b", mermaid: null } }] };
-    app.refreshStatus(report);
-    assert.equal(report.status, "resolved");
-    assert.match(badge.outerHTML, /조치 완료/);
-  });
+  test.it("수정안 생성, 완료, 취소, 재완료 시 버튼과 배지 및 진행도가 갱신된다", async () => {
+    const { report, issue, listeners, resolve, badge, progress, panel, env } = reportWithControls();
+    assert.equal(resolve.disabled, true);
+    assert.equal(resolve.textContent, "조치 완료");
 
-  test.it("불일치 아님(dismiss)으로 처리한 항목도 조치 완료로 센다", () => {
-    const { app, badge } = withBadge();
-    const report = { status: "done", issues: [{ fix: { diff: "x" } }, { direction: "dismiss", fix: null }] };
-    app.refreshStatus(report);
-    assert.equal(report.status, "resolved");
-    assert.match(badge.outerHTML, /조치 완료/);
-  });
-
-  test.it("수정안이 없는 불일치가 남아 있으면 그대로 둔다", () => {
-    const { app, badge } = withBadge();
-    const report = { status: "done", issues: [{ fix: { diff: "x" } }, { fix: null }] };
-    app.refreshStatus(report);
+    await listeners.code();
     assert.equal(report.status, "done");
+    assert.equal(resolve.disabled, false);
+    assert.equal(env.requests.length, 1);
+    const proposal = panel.innerHTML;
+
+    const saving = listeners.resolve();
+    assert.equal(resolve.disabled, true);
+    await listeners.resolve();
+    await saving;
+    assert.equal(env.requests.length, 2);
+    assert.equal(env.requests[1].url, "/api/reports/rpt/issues/iss_1/resolution");
+    assert.equal(env.requests[1].method, "PUT");
+    assert.deepEqual(JSON.parse(env.requests[1].body), {
+      resolved: true, reviewed: { direction: "code", fix: { diff: "x" } },
+    });
+    assert.equal(resolve.textContent, "조치 완료 취소");
+    assert.equal(resolve.primary, false);
+    assert.match(badge.outerHTML, /조치 완료/);
+    assert.match(progress.outerHTML, /aria-valuenow="1"/);
+
+    await listeners.resolve();
+    assert.deepEqual(JSON.parse(env.requests[2].body), { resolved: false });
+    assert.equal(resolve.textContent, "조치 완료");
+    assert.equal(resolve.primary, true);
     assert.match(badge.outerHTML, /분석 완료/);
+    assert.match(progress.outerHTML, /aria-valuenow="0"/);
+    assert.deepEqual(issue.fix, { diff: "x" });
+    assert.equal(panel.innerHTML, proposal);
+
+    await listeners.resolve();
+    assert.equal(report.status, "resolved");
+    assert.equal(resolve.textContent, "조치 완료 취소");
+  });
+
+  test.it("취소 요청 실패 시 완료 상태와 수정안을 유지하고 재시도를 안내한다", async () => {
+    const { report, issue, listeners, resolve, note } = reportWithControls({
+      resolutionStatus: 500, alreadyResolved: true,
+    });
+    assert.equal(resolve.textContent, "조치 완료 취소");
+    await listeners.resolve();
+    assert.equal(report.status, "resolved");
+    assert.equal(resolve.textContent, "조치 완료 취소");
+    assert.equal(resolve.disabled, false);
+    assert.deepEqual(issue.fix, { diff: "x" });
+    assert.match(note.textContent, /다시 시도/);
+  });
+
+  test.it("샘플의 완료 취소도 같은 탭에서 다시 불러오면 유지된다", async () => {
+    const url = "file:///C:/archicheck/dashboard/index.html";
+    const session = memoryStorage();
+    const { app } = loadApp({ url, session });
+    const report = (await app.api.listReports()).find((item) => item.status === "resolved");
+    await app.api.setIssueResolution(report.id, report.issues[0], false);
+    const { app: reloaded } = loadApp({ url, session });
+    const reopened = await reloaded.api.getReport(report.id);
+    assert.equal(reopened.status, "done");
+    assert.equal(reopened.issues[0].resolved, false);
+    assert.equal(reopened.issues[0].fix.after, report.issues[0].fix.after);
   });
 });

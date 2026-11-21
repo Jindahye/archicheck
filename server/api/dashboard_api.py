@@ -1,6 +1,7 @@
 """대시보드용 API (DESIGN.md 3.4).
 
-POST /api/login, POST /api/logout, GET /api/reports, GET /api/reports/{id}, POST .../fix
+POST /api/login, POST /api/logout, GET /api/reports, GET /api/reports/{id},
+POST .../fix, PUT .../resolution
 """
 from __future__ import annotations
 
@@ -12,7 +13,7 @@ from functools import lru_cache
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from server.store.report_store import ReportStore
 
@@ -65,9 +66,7 @@ class DashboardAPI:
 
     def get_report(self, id: str) -> dict:
         report = self.store.get(id)
-        if report is None:
-            raise HTTPException(status_code=404, detail="Report not found")
-        return report
+        return _require_report(report)
 
     def request_fix(
         self,
@@ -79,7 +78,7 @@ class DashboardAPI:
     ) -> dict:
         """수정 방향을 정하고 수정안을 만들어 리포트에 저장한다 (3.4).
 
-        direction: "code", "doc", "dismiss"(불일치 아님). 반환: {"direction": ..., "fix": ...}
+        direction: "code", "doc", "dismiss"(불일치 아님). 반환: {"direction": ..., "fix": ..., "status": ...}
 
         - 같은 issue에 같은 direction으로 다시 요청하면 저장된 수정안을 그대로 돌려준다.
         - regenerate=True(재분석)면 저장된 값을 쓰지 않고 새로 만들어 덮어쓴다. feedback은 생성 프롬프트에 넣는다.
@@ -96,12 +95,10 @@ class DashboardAPI:
             )
 
         if direction == "dismiss":
-            if issue.get("direction") == "dismiss":
-                return {"direction": "dismiss", "fix": None}
             return self._save_choice(report_id, issue_id, "dismiss", None)
 
         if not regenerate and issue.get("direction") == direction and issue.get("fix"):
-            return {"direction": direction, "fix": issue["fix"]}
+            return {"direction": direction, "fix": issue["fix"], "status": report["status"]}
 
         design_path = str(issue.get("designRef") or "").split("#", 1)[0].strip()
         if not design_path:
@@ -133,23 +130,55 @@ class DashboardAPI:
 
         fix = _validate_fix(direction, raw)  # 형식이 틀리면 저장 전에 502
 
-        return self._save_choice(report_id, issue_id, direction, fix)
+        return self._save_choice(report_id, issue_id, direction, fix, regenerate)
 
-    def _save_choice(self, report_id: str, issue_id: str, direction: str, fix: dict | None) -> dict:
-        """방향과 수정안을 저장한다. 기존 수정안은 fixHistory에 남기고, 모두 조치되면 resolved로 바꾼다."""
-        # 생성하는 동안 리포트가 바뀌었을 수 있으므로 다시 읽어 이 issue만 갱신한다.
-        latest = self.get_report(report_id)
-        target = _find_issue(latest, issue_id)
-        if target.get("fix"):
-            # 재분석·방향 전환으로 덮어쓰기 전에 기존 수정안을 이력에 남긴다 (3.3 fixHistory, 최신순 최대 5개)
-            old = {"direction": target.get("direction"), "fix": target["fix"], "replacedAt": _now_iso()}
-            target["fixHistory"] = [old, *(target.get("fixHistory") or [])][:FIX_HISTORY_MAX]
-        target["direction"] = direction
-        target["fix"] = fix
-        if all(i.get("fix") or i.get("direction") == "dismiss" for i in latest.get("issues", [])):
-            latest["status"] = "resolved"
-        self.store.save(latest)
-        return {"direction": direction, "fix": fix}
+    def _save_choice(
+        self, report_id: str, issue_id: str, direction: str, fix: dict | None, regenerate: bool = False
+    ) -> dict:
+        """방향과 수정안을 저장한다 (3.3).
+
+        - 기존 수정안은 fixHistory에 남긴다.
+        - 새 수정안은 아직 사용자가 확인하지 않았으므로 resolved=false, dismiss는 바로 resolved=true.
+        - 읽기부터 저장까지 store.edit로 묶어 다른 쓰기와 겹치지 않게 한다.
+        """
+        with self.store.edit(report_id) as stored:
+            latest = _require_report(stored)
+            if latest.get("status") not in FIXABLE_STATUSES:
+                raise HTTPException(status_code=409, detail="Report changed during fix generation")
+            target = _find_issue(latest, issue_id)
+            if direction == "dismiss" and target.get("direction") == "dismiss":
+                return {"direction": "dismiss", "fix": None, "status": latest["status"]}
+            if direction != "dismiss" and not regenerate and target.get("direction") == direction and target.get("fix"):
+                return {"direction": direction, "fix": target["fix"], "status": latest["status"]}
+            if target.get("fix"):
+                # 재분석·방향 전환으로 덮어쓰기 전에 기존 수정안을 이력에 남긴다 (3.3 fixHistory, 최신순 최대 5개)
+                old = {"direction": target.get("direction"), "fix": target["fix"], "replacedAt": _now_iso()}
+                target["fixHistory"] = [old, *(target.get("fixHistory") or [])][:FIX_HISTORY_MAX]
+            _fill_legacy_resolutions(latest)
+            target["direction"] = direction
+            target["fix"] = fix
+            target["resolved"] = direction == "dismiss"
+            latest["status"] = _status_from_resolutions(latest)
+        return {"direction": direction, "fix": fix, "status": latest["status"]}
+
+    def set_issue_resolution(
+        self, report_id: str, issue_id: str, resolved: bool, reviewed: dict | None
+    ) -> dict:
+        with self.store.edit(report_id) as stored:
+            report = _require_report(stored)
+            issue = _find_issue(report, issue_id)
+            if report.get("status") not in FIXABLE_STATUSES:
+                raise HTTPException(status_code=409, detail="Report is not ready to resolve")
+            if resolved:
+                current = _reviewable_fix(issue)
+                if current is None or current != reviewed:
+                    raise HTTPException(status_code=409, detail="Fix is missing or changed since review")
+
+            _fill_legacy_resolutions(report)
+            issue["resolved"] = resolved
+            resolutions = {item["id"]: item.get("resolved", False) for item in report["issues"]}
+            report["status"] = _status_from_resolutions(report)
+        return {"status": report["status"], "resolutions": resolutions}
 
     def _get_github(self):
         if self.github is not None:
@@ -162,11 +191,39 @@ class DashboardAPI:
         return _build_or_503(_default_fix_generator, "FixGenerator")
 
 
+def _require_report(report: dict | None) -> dict:
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
 def _find_issue(report: dict, issue_id: str) -> dict:
     for issue in report.get("issues", []):
         if issue.get("id") == issue_id:
             return issue
     raise HTTPException(status_code=404, detail="Issue not found")
+
+
+def _reviewable_fix(issue: dict) -> dict | None:
+    """조치 완료로 기록할 수 있는 현재 선택. 수정안이 있거나 dismiss(불일치 아님)여야 한다."""
+    if issue.get("direction") in ("code", "doc") and issue.get("fix"):
+        return {"direction": issue["direction"], "fix": issue["fix"]}
+    if issue.get("direction") == "dismiss":
+        return {"direction": "dismiss", "fix": None}
+    return None
+
+
+def _fill_legacy_resolutions(report: dict) -> None:
+    """항목별 resolved가 없던 예전 resolved 리포트: 한 항목을 바꿔도 나머지는 완료로 남게 채운다."""
+    if report.get("status") == "resolved":
+        for item in report.get("issues", []):
+            item.setdefault("resolved", True)
+
+
+def _status_from_resolutions(report: dict) -> str:
+    """불일치 항목이 있고 모두 조치 완료면 resolved, 아니면 done (3.3)."""
+    issues = report.get("issues", [])
+    return "resolved" if issues and all(i.get("resolved") for i in issues) else "done"
 
 
 def _is_external_error(exc: BaseException) -> bool:
@@ -239,6 +296,11 @@ class FixRequest(BaseModel):
     feedback: str | None = Field(default=None, max_length=500)  # 재분석 요청 문구 (선택)
 
 
+class IssueResolutionRequest(BaseModel):
+    resolved: StrictBool
+    reviewed: dict | None = None
+
+
 router = APIRouter(prefix="/api")
 
 
@@ -278,3 +340,13 @@ def request_fix(
 ) -> dict:
     # 일부러 async가 아닌 def: Gemini·GitHub 호출이 오래 걸려서 스레드풀에서 돌린다.
     return api.request_fix(id, issue_id, body.direction, body.regenerate, body.feedback)
+
+
+@router.put("/reports/{id}/issues/{issue_id}/resolution", dependencies=[Depends(require_session)])
+def set_issue_resolution(
+    id: str,
+    issue_id: str,
+    body: IssueResolutionRequest,
+    api: DashboardAPI = Depends(get_dashboard_api),
+) -> dict:
+    return api.set_issue_resolution(id, issue_id, body.resolved, body.reviewed)
