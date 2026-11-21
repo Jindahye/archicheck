@@ -337,10 +337,11 @@ classDiagram
 | 필드 | 설명 |
 | --- | --- |
 | `headSha` | 분석한 PR의 마지막 커밋 |
-| `status` | `analyzing`(분석 중) / `done`(완료) / `resolved`(모든 불일치 조치 완료) / `failed`(분석 실패) |
+| `status` | `analyzing`(분석 중) / `done`(분석 완료) / `resolved`(불일치 항목이 있고 모두 조치 완료) / `failed`(분석 실패) |
 | `designDocs` | 비교에 사용한 설계 문서 경로 (3.5 탐색 결과) |
 | `summary`, `impact` | 보조 기능(FR-9, FR-10) 결과. 비어 있어도 된다 |
 | `issues[].direction` | 사용자 선택 전 `null`, 선택 후 `code` 또는 `doc` |
+| `issues[].resolved` | 항목의 조치 완료 여부를 나타내는 선택 필드입니다. 값이 없으면 리포트가 `resolved`일 때 완료로, 그 외에는 미완료로 표시합니다. |
 | `issues[].designRef` | 불일치 근거가 된 설계 문서 경로와 섹션 (문서 이름은 레포마다 다름) |
 | `issues[].fix` | 선택 후 생성된 수정안. `code`면 `{ "diff": "..." }`, `doc`이면 `{ "before": "...", "after": "...", "mermaid": "..." }` (다이어그램이 없으면 `mermaid`는 `null`) |
 
@@ -354,7 +355,10 @@ classDiagram
 | POST | `/api/logout` | 세션 | 세션 쿠키 삭제 |
 | GET | `/api/reports` | 세션 | 분석 이력 목록 |
 | GET | `/api/reports/{id}` | 세션 | 리포트 상세 |
-| POST | `/api/reports/{id}/issues/{issueId}/fix` | 세션 | 수정 방향 선택 및 수정안 생성. 요청 본문: `{ "direction": "code" }` 또는 `{ "direction": "doc" }` |
+| POST | `/api/reports/{id}/issues/{issueId}/fix` | 세션 | 수정 방향 선택 및 수정안 생성. 요청 본문은 `{ "direction": "code" }` 또는 `{ "direction": "doc" }`이며, 응답에 `direction`, `fix`, `status`를 담습니다. |
+| PUT | `/api/reports/{id}/issues/{issueId}/resolution` | 세션 | 항목의 완료 또는 취소 상태를 저장합니다. 완료 요청은 `{ "resolved": true, "reviewed": { "direction": "code", "fix": { "diff": "..." } } }`, 취소 요청은 `{ "resolved": false }`입니다. 성공하면 리포트 `status`와 항목별 완료 여부를 담은 `resolutions`를 반환합니다. 완료 요청의 수정안이 누락됐거나 저장된 수정안과 다르면 `409`를 반환합니다. |
+
+항목별로 수정안을 확인한 뒤 **조치 완료**를 누르거나 완료된 항목에서 **조치 완료 취소**를 누를 수 있습니다. 수정안 생성과 완료 상태 변경은 각각 저장합니다. 상세 화면과 분석 이력은 저장된 항목 상태를 바탕으로 완료 건수를 표시합니다.
 
 #### 대시보드 인증
 

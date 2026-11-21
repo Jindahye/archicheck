@@ -24,25 +24,61 @@ function detectSampleMode() {
 }
 
 // ===== 데이터 불러오기 (API 연결은 여기만 고치면 된다) =====
+function sampleReport(original) {
+  try {
+    const saved = sessionStorage.getItem(`archicheck-sample-report:${original.id}`);
+    if (saved) return JSON.parse(saved);
+  } catch (_) {}
+  return structuredClone(original);
+}
+
+function saveSampleReport(report) {
+  sessionStorage.setItem(`archicheck-sample-report:${report.id}`, JSON.stringify(report));
+}
+
 const api = {
   async listReports() {
-    if (USE_SAMPLE) return structuredClone(window.SAMPLE_REPORTS);
+    if (USE_SAMPLE) return window.SAMPLE_REPORTS.map(sampleReport);
     return getJson(`${API_BASE}/api/reports`);
   },
   async getReport(id) {
     if (USE_SAMPLE) {
       const r = window.SAMPLE_REPORTS.find((x) => x.id === id);
       if (!r) throw new Error("리포트를 찾을 수 없습니다. 분석 이력에서 다시 선택하세요.");
-      return structuredClone(r);
+      return sampleReport(r);
     }
     return getJson(`${API_BASE}/api/reports/${encodeURIComponent(id)}`);
   },
   async requestFix(reportId, issueId, direction) {
-    if (USE_SAMPLE) return { direction, fix: null };   // 샘플 모드: 서버 호출 없이 선택만 반영
+    if (USE_SAMPLE) {
+      const report = await this.getReport(reportId);
+      const issue = report.issues.find((item) => item.id === issueId);
+      if (issue.direction !== direction) Object.assign(issue, { direction, fix: null });
+      saveSampleReport(report);
+      return { direction, fix: issue.fix, status: report.status };
+    }
     return getJson(
       `${API_BASE}/api/reports/${encodeURIComponent(reportId)}/issues/${encodeURIComponent(issueId)}/fix`,
       { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ direction }) }
     );
+  },
+  async setIssueResolution(reportId, issue, resolved) {
+    if (USE_SAMPLE) {
+      const report = await this.getReport(reportId);
+      const resolutions = Object.fromEntries(report.issues.map((item) => {
+        item.resolved = item.id === issue.id ? resolved : issueResolved(report, item);
+        return [item.id, item.resolved];
+      }));
+      report.status = Object.values(resolutions).every(Boolean) ? "resolved" : "done";
+      saveSampleReport(report);
+      return { status: report.status, resolutions };
+    }
+    const reviewed = resolved ? { direction: issue.direction, fix: issue.fix } : undefined;
+    return getJson(`${API_BASE}/api/reports/${encodeURIComponent(reportId)}/issues/${encodeURIComponent(issue.id)}/resolution`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resolved, reviewed }),
+    });
   },
 };
 
@@ -247,13 +283,18 @@ function githubLink(repo, sha, ref) {
 }
 
 // 리포트의 불일치 집계
+function issueResolved(report, issue) {
+  return issue.resolved ?? (report.status === "resolved");
+}
+
 function issueStats(r) {
   const issues = r.issues || [];
   const total = issues.length;
   const pending = issues.filter((i) => !i.direction).length;
   const code = issues.filter((i) => i.direction === "code").length;
   const doc = issues.filter((i) => i.direction === "doc").length;
-  return { total, pending, code, doc };
+  const resolved = issues.filter((i) => issueResolved(r, i)).length;
+  return { total, pending, code, doc, resolved };
 }
 
 // ===== 테마 전환 =====
@@ -397,10 +438,10 @@ function renderRows() {
     } else if (s.total === 0) {
       issuesCell = `<span class="muted">없음 · 설계와 일치</span>`;
     } else if (s.pending > 0) {
-      issuesCell = `<span class="pending-chip">결정 대기 ${s.pending}</span><span class="muted">/ 전체 ${s.total}건</span>`;
+      issuesCell = `<span class="pending-chip">결정 대기 ${s.pending}</span><span class="muted">조치 완료 ${s.resolved} / ${s.total}건</span>`;
       attention = "crit";
     } else {
-      issuesCell = `<span class="muted">${s.total}건 모두 결정</span>`;
+      issuesCell = `<span class="muted">조치 완료 ${s.resolved} / ${s.total}건</span>`;
     }
     if (r.status === "analyzing") attention = "warn";
     return `
@@ -466,21 +507,19 @@ function headSection(r) {
     </section>`;
 }
 
-// 결정 진행도: 얇은 분할 막대 (코드 수정 / 문서 개정 / 결정 대기)
+// 조치 완료 진행도
 function progressBlock(r) {
   const s = issueStats(r);
   if (r.status === "analyzing" || r.status === "failed" || s.total === 0) return "";
-  const decided = s.code + s.doc;
+  const remaining = s.total - s.resolved;
   const parts = [
-    ["seg-code", s.code, "코드 수정"],
-    ["seg-doc", s.doc, "문서 개정"],
-    ["seg-pending", s.pending, "결정 대기"],
+    ["seg-resolved", s.resolved, "조치 완료"],
+    ["seg-open", remaining, "미완료"],
   ].filter((p) => p[1] > 0);
-  const aria = parts.map((p) => `${p[2]} ${p[1]}건`).join(", ");
   return `
     <div class="progress">
-      <div class="progress-text">불일치 <b>${s.total}건</b> 중 <b>${decided}건</b> 수정 방향을 정했습니다.</div>
-      <div class="segbar" role="img" aria-label="${aria}">
+      <div class="progress-text">불일치 <b>${s.total}건</b> 중 <b>${s.resolved}건</b> 조치 완료</div>
+      <div class="segbar" role="progressbar" aria-label="조치 완료" aria-valuenow="${s.resolved}" aria-valuemax="${s.total}">
         ${parts.map((p) => `<span class="${p[0]}" style="flex:${p[1]}" title="${p[2]} ${p[1]}건"></span>`).join("")}
       </div>
       <div class="legend">
@@ -537,6 +576,10 @@ function issueCard(r, iss, i) {
         <span class="choice">${dir ? `${DIRECTION_LABEL[dir]}으로 정했습니다` : "코드를 고칠지, 설계 문서를 고칠지 골라 주세요"}</span>
       </div>
       <div class="fix-panel"></div>
+      <div class="actions issue-resolution">
+        <button type="button" class="btn primary" data-resolution disabled>조치 완료</button>
+        <span class="choice" data-resolution-note role="status"></span>
+      </div>
     </article>`;
 }
 
@@ -586,11 +629,65 @@ function impactCard(r) {
 }
 
 function bindIssueButtons(r) {
+  let updatingResolution = false;
+  const controls = [];
+  const syncAll = (updateNotes = false) => controls.forEach((sync) => sync(updateNotes));
+
   document.querySelectorAll(".issue").forEach((card) => {
     const iss = r.issues.find((x) => x.id === card.dataset.issue);
     const panel = card.querySelector(".fix-panel");
     const choice = card.querySelector(".choice");
-    const buttons = card.querySelectorAll(".btn");
+    const buttons = card.querySelectorAll("[data-dir]");
+    const resolutionButton = card.querySelector("[data-resolution]");
+    const note = card.querySelector("[data-resolution-note]");
+    let generating = false;
+
+    function syncCard(updateNote = false) {
+      const resolved = issueResolved(r, iss);
+      const ready = iss.direction && (USE_SAMPLE || iss.fix);
+      resolutionButton.textContent = resolved ? "조치 완료 취소" : "조치 완료";
+      resolutionButton.classList.toggle("primary", !resolved);
+      resolutionButton.disabled = updatingResolution || generating || (!resolved && !ready);
+      if (updateNote) showResolutionNote();
+    }
+
+    function showResolutionNote() {
+      note.classList.remove("error");
+      note.textContent = issueResolved(r, iss)
+        ? "조치 완료로 기록했습니다."
+        : "수정안을 확인한 뒤 조치 완료를 눌러 주세요.";
+    }
+
+    controls.push(syncCard);
+    syncCard(true);
+
+    resolutionButton.addEventListener("click", async () => {
+      if (resolutionButton.disabled) return;
+      const resolved = !issueResolved(r, iss);
+      updatingResolution = true;
+      syncAll();
+      buttons.forEach((button) => (button.disabled = true));
+      note.classList.remove("error");
+      note.textContent = resolved ? "조치 완료를 기록하는 중입니다…" : "조치 완료를 취소하는 중입니다…";
+      try {
+        const result = await api.setIssueResolution(r.id, iss, resolved);
+        r.issues.forEach((item) => (item.resolved = result.resolutions[item.id]));
+        refreshStatus(r, result.status);
+        refreshProgress(r);
+        syncAll(true);
+      } catch (e) {
+        note.classList.add("error");
+        const action = resolved ? "기록" : "취소";
+        note.textContent = e.status === 409
+          ? "수정안 상태가 바뀌었습니다. 새로 고침한 뒤 다시 확인해 주세요."
+          : `조치 완료를 ${action}하지 못했습니다. 다시 시도해 주세요.`;
+      } finally {
+        updatingResolution = false;
+        buttons.forEach((button) => (button.disabled = false));
+        syncAll();
+      }
+    });
+
     if (iss.direction) showFix(iss, panel);
 
     buttons.forEach((btn) => {
@@ -599,6 +696,8 @@ function bindIssueButtons(r) {
         // 이미 고른 방향이고 수정안도 있으면 서버가 저장된 값을 그대로 주므로 부르지 않는다
         if (iss.direction === direction && iss.fix) return;
         buttons.forEach((b) => (b.disabled = true));
+        generating = true;
+        syncCard();
         choice.classList.remove("error");
         choice.textContent = `${DIRECTION_LABEL[direction]}안을 만드는 중입니다…`;
         // 예전 수정안 대신 진행 표시를 보여 준다 (AI 응답에 10~30초 걸릴 수 있음)
@@ -612,7 +711,7 @@ function bindIssueButtons(r) {
           choice.textContent = `${DIRECTION_LABEL[iss.direction]}으로 정했습니다`;
           showFix(iss, panel);
           refreshProgress(r);
-          refreshStatus(r);
+          showResolutionNote();
         } catch (e) {
           // 실패하면 서버는 아무것도 저장하지 않는다 → 이전 선택과 수정안을 다시 보여 준다
           if (iss.direction) showFix(iss, panel);
@@ -621,19 +720,19 @@ function bindIssueButtons(r) {
           choice.textContent = fixErrorMessage(e);
         } finally {
           buttons.forEach((b) => (b.disabled = false));
+          generating = false;
+          syncCard();
         }
       });
     });
   });
 }
 
-// 모든 불일치에 수정안이 생기면 서버가 리포트를 resolved로 바꾼다 (PR #6) → 상단 배지도 바로 바꾼다
-function refreshStatus(r) {
-  const issues = r.issues || [];
-  if (r.status !== "done" || !issues.length || !issues.every((i) => i.fix)) return;
-  r.status = "resolved";
+function refreshStatus(r, status) {
+  if (!status || r.status === status) return;
+  r.status = status;
   const badge = document.querySelector(".report-head .status");
-  if (badge) badge.outerHTML = statusBadge("resolved");
+  if (badge) badge.outerHTML = statusBadge(status);
 }
 
 function refreshProgress(r) {

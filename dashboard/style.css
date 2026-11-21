@@ -212,12 +212,14 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .meta dt { color: var(--ink-3); }
 .meta dd { margin: 0; }
 
-/* 진행도 (결정한 불일치 / 전체) */
+/* 조치 완료 진행도 */
 .progress { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
 .progress-text { font-size: var(--fs-sm); color: var(--ink-2); }
 .progress-text b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .segbar { display: flex; gap: 2px; height: 8px; }
 .segbar span { border-radius: 999px; min-width: 0; }
+.seg-resolved { background: var(--primary); }
+.seg-open { background: var(--line); }
 .seg-code { background: var(--ink-2); }
 .seg-doc { background: var(--accent); }
 .seg-pending { background: var(--crit); opacity: .35; }
@@ -276,6 +278,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .btn[aria-pressed="true"].code { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .btn[aria-pressed="true"].doc { background: var(--accent-strong); color: #fff; border-color: var(--accent-strong); }
 .btn:disabled { opacity: .55; cursor: progress; }
+.issue-resolution { padding-top: 12px; border-top: 1px solid var(--line-soft); }
 .choice { font-size: var(--fs-sm); color: var(--ink-3); }
 .choice.error { color: var(--crit); }
 

@@ -1,6 +1,7 @@
 """대시보드용 API (DESIGN.md 3.4).
 
-POST /api/login, POST /api/logout, GET /api/reports, GET /api/reports/{id}, POST .../fix
+POST /api/login, POST /api/logout, GET /api/reports, GET /api/reports/{id},
+POST .../fix, PUT .../resolution
 """
 from __future__ import annotations
 
@@ -11,7 +12,7 @@ from functools import lru_cache
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
 
 from server.store.report_store import ReportStore
 
@@ -59,14 +60,12 @@ class DashboardAPI:
 
     def get_report(self, id: str) -> dict:
         report = self.store.get(id)
-        if report is None:
-            raise HTTPException(status_code=404, detail="Report not found")
-        return report
+        return _require_report(report)
 
     def request_fix(self, report_id: str, issue_id: str, direction: str) -> dict:
         """수정 방향을 정하고 수정안을 만들어 리포트에 저장한다 (3.4).
 
-        direction: "code" 또는 "doc". 반환: {"direction": ..., "fix": ...}
+        direction: "code" 또는 "doc". 반환: {"direction": ..., "fix": ..., "status": ...}
 
         - 같은 issue에 같은 direction으로 다시 요청하면 저장된 수정안을 그대로 돌려준다.
         - direction이 바뀌면 새로 만들어 기존 값을 덮어쓴다.
@@ -81,7 +80,7 @@ class DashboardAPI:
             )
 
         if issue.get("direction") == direction and issue.get("fix"):
-            return {"direction": direction, "fix": issue["fix"]}
+            return {"direction": direction, "fix": issue["fix"], "status": report["status"]}
 
         design_path = str(issue.get("designRef") or "").split("#", 1)[0].strip()
         if not design_path:
@@ -111,15 +110,39 @@ class DashboardAPI:
 
         fix = _validate_fix(direction, raw)  # 형식이 틀리면 저장 전에 502
 
-        # 생성하는 동안 리포트가 바뀌었을 수 있으므로 다시 읽어 이 issue만 갱신한다.
-        latest = self.get_report(report_id)
-        target = _find_issue(latest, issue_id)
-        target["direction"] = direction
-        target["fix"] = fix
-        if all(i.get("fix") for i in latest.get("issues", [])):
-            latest["status"] = "resolved"
-        self.store.save(latest)
-        return {"direction": direction, "fix": fix}
+        with self.store.edit(report_id) as stored:
+            latest = _require_report(stored)
+            if latest.get("status") not in FIXABLE_STATUSES:
+                raise HTTPException(status_code=409, detail="Report changed during fix generation")
+            target = _find_issue(latest, issue_id)
+            if target.get("direction") == direction and target.get("fix"):
+                return {"direction": direction, "fix": target["fix"], "status": latest["status"]}
+            target["direction"] = direction
+            target["fix"] = fix
+        return {"direction": direction, "fix": fix, "status": latest["status"]}
+
+    def set_issue_resolution(
+        self, report_id: str, issue_id: str, resolved: bool, reviewed: dict | None
+    ) -> dict:
+        with self.store.edit(report_id) as stored:
+            report = _require_report(stored)
+            issue = _find_issue(report, issue_id)
+            if report.get("status") not in FIXABLE_STATUSES:
+                raise HTTPException(status_code=409, detail="Report is not ready to resolve")
+            if resolved:
+                current = _reviewable_fix(issue)
+                if current is None or current != reviewed:
+                    raise HTTPException(status_code=409, detail="Fix is missing or changed since review")
+
+            # 항목별 상태가 없던 리포트도 한 항목을 취소한 뒤 나머지 항목의 완료 상태가 유지돼야 합니다.
+            issues = report["issues"]
+            if report["status"] == "resolved":
+                for item in issues:
+                    item.setdefault("resolved", True)
+            issue["resolved"] = resolved
+            resolutions = {item["id"]: item.get("resolved", False) for item in issues}
+            report["status"] = "resolved" if all(resolutions.values()) else "done"
+        return {"status": report["status"], "resolutions": resolutions}
 
     def _get_github(self):
         if self.github is not None:
@@ -132,11 +155,23 @@ class DashboardAPI:
         return _build_or_503(_default_fix_generator, "FixGenerator")
 
 
+def _require_report(report: dict | None) -> dict:
+    if report is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    return report
+
+
 def _find_issue(report: dict, issue_id: str) -> dict:
     for issue in report.get("issues", []):
         if issue.get("id") == issue_id:
             return issue
     raise HTTPException(status_code=404, detail="Issue not found")
+
+
+def _reviewable_fix(issue: dict) -> dict | None:
+    if issue.get("direction") in ("code", "doc") and issue.get("fix"):
+        return {"direction": issue["direction"], "fix": issue["fix"]}
+    return None
 
 
 def _is_external_error(exc: BaseException) -> bool:
@@ -207,6 +242,11 @@ class FixRequest(BaseModel):
     direction: Literal["code", "doc"]
 
 
+class IssueResolutionRequest(BaseModel):
+    resolved: StrictBool
+    reviewed: dict | None = None
+
+
 router = APIRouter(prefix="/api")
 
 
@@ -246,3 +286,13 @@ def request_fix(
 ) -> dict:
     # 일부러 async가 아닌 def: Gemini·GitHub 호출이 오래 걸려서 스레드풀에서 돌린다.
     return api.request_fix(id, issue_id, body.direction)
+
+
+@router.put("/reports/{id}/issues/{issue_id}/resolution", dependencies=[Depends(require_session)])
+def set_issue_resolution(
+    id: str,
+    issue_id: str,
+    body: IssueResolutionRequest,
+    api: DashboardAPI = Depends(get_dashboard_api),
+) -> dict:
+    return api.set_issue_resolution(id, issue_id, body.resolved, body.reviewed)

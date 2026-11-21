@@ -244,7 +244,7 @@ def test_fix_code_success(fix_client, store, sample, github, generator):
     store.save(sample)
     r = fix_client.post(fix_url(), json={"direction": "code"})
     assert r.status_code == 200
-    assert r.json() == {"direction": "code", "fix": CODE_FIX}
+    assert r.json() == {"direction": "code", "fix": CODE_FIX, "status": "done"}
 
     # 설계 문서(designRef의 '#' 앞)와 코드 전문을 headSha 시점으로 조회한다
     assert github.calls == [
@@ -263,7 +263,7 @@ def test_fix_doc_success_does_not_fetch_code(fix_client, store, sample, github, 
     store.save(sample)
     r = fix_client.post(fix_url(), json={"direction": "doc"})
     assert r.status_code == 200
-    assert r.json() == {"direction": "doc", "fix": DOC_FIX}
+    assert r.json() == {"direction": "doc", "fix": DOC_FIX, "status": "done"}
     assert github.calls == [("owner/target-repo", "a1b2c3d", "docs/architecture.md")]
     assert generator.calls[0][0] == "doc" and generator.calls[0][2] == "# 설계 문서 전문"
     saved = store.get(sample["id"])["issues"][0]
@@ -312,18 +312,85 @@ def test_fix_direction_change_regenerates_and_overwrites(fix_client, store, samp
     store.save(sample)
     fix_client.post(fix_url(), json={"direction": "code"})
     r = fix_client.post(fix_url(), json={"direction": "doc"})
-    assert r.json() == {"direction": "doc", "fix": DOC_FIX}
+    assert r.json() == {"direction": "doc", "fix": DOC_FIX, "status": "done"}
     assert [c[0] for c in generator.calls] == ["code", "doc"]
     saved = store.get(sample["id"])["issues"][0]
     assert saved["direction"] == "doc" and saved["fix"] == DOC_FIX
 
 
-def test_fix_status_becomes_resolved_when_all_issues_have_fix(fix_client, store, sample):
+def test_fix_generation_does_not_resolve_report(fix_client, store, sample):
     store.save(two_issue_report(sample))
     fix_client.post(fix_url(issue_id="iss_1"), json={"direction": "code"})
-    assert store.get(sample["id"])["status"] == "done"  # 아직 iss_2가 남았다
     fix_client.post(fix_url(issue_id="iss_2"), json={"direction": "doc"})
-    assert store.get(sample["id"])["status"] == "resolved"
+    report = fix_client.get(f"/api/reports/{sample['id']}").json()
+    assert report["status"] == "done"
+    assert all(issue["fix"] for issue in report["issues"])
+
+
+def test_issue_resolution_round_trip_keeps_fixes_and_other_reports(fix_client, store, sample):
+    store.save(two_issue_report(sample))
+    other = {**sample, "id": "another-report"}
+    store.save(other)
+    report_url = f"/api/reports/{sample['id']}"
+    first = f"{report_url}/issues/iss_1/resolution"
+    second = f"{report_url}/issues/iss_2/resolution"
+    code_review = {"resolved": True, "reviewed": {"direction": "code", "fix": CODE_FIX}}
+    doc_review = {"resolved": True, "reviewed": {"direction": "doc", "fix": DOC_FIX}}
+
+    assert fix_client.put(first, json=code_review).status_code == 409
+    fix_client.post(fix_url(issue_id="iss_1"), json={"direction": "code"})
+    assert fix_client.put(first, json=code_review).json() == {
+        "status": "done", "resolutions": {"iss_1": True, "iss_2": False}
+    }
+    fix_client.post(fix_url(issue_id="iss_2"), json={"direction": "doc"})
+    assert fix_client.put(second, json=doc_review).json() == {
+        "status": "resolved", "resolutions": {"iss_1": True, "iss_2": True}
+    }
+    completed = fix_client.get(report_url).json()
+    assert completed["status"] == "resolved"
+
+    for _ in range(2):
+        assert fix_client.put(first, json={"resolved": False}).json() == {
+            "status": "done", "resolutions": {"iss_1": False, "iss_2": True}
+        }
+    reopened = fix_client.get(report_url).json()
+    expected = {
+        **completed,
+        "status": "done",
+        "issues": [{**completed["issues"][0], "resolved": False}, completed["issues"][1]],
+    }
+    assert reopened == expected
+    reports = {report["id"]: report for report in fix_client.get("/api/reports").json()}
+    assert reports[sample["id"]] == expected
+    assert reports[other["id"]] == other
+
+    assert fix_client.put(first, json=code_review).status_code == 200
+    assert fix_client.get(report_url).json() == completed
+
+
+def test_cancel_legacy_resolution_preserves_other_legacy_issue(client, store, sample):
+    report = two_issue_report(sample)
+    report["status"] = "resolved"
+    for issue in report["issues"]:
+        issue.update(direction="doc", fix=DOC_FIX)
+    store.save(report)
+    url = f"/api/reports/{report['id']}/issues/iss_1/resolution"
+    assert client.get(f"/api/reports/{report['id']}").json() == report
+    assert client.put(url, json={"resolved": False}).json() == {
+        "status": "done", "resolutions": {"iss_1": False, "iss_2": True}
+    }
+    assert store.get(report["id"])["issues"][1] == {**report["issues"][1], "resolved": True}
+
+
+def test_issue_resolution_checks_session_and_current_fix(anon, fix_client, store, sample):
+    store.save(sample)
+    url = f"/api/reports/{sample['id']}/issues/iss_1/resolution"
+    assert anon.put(url, json={"resolved": False}).status_code == 401
+    fix_client.post(fix_url(), json={"direction": "doc"})
+    before = store.get(sample["id"])
+    stale = {"resolved": True, "reviewed": {"direction": "code", "fix": CODE_FIX}}
+    assert fix_client.put(url, json=stale).status_code == 409
+    assert store.get(sample["id"]) == before
 
 
 def test_fix_invalid_direction_422(fix_client, store, sample, github):
