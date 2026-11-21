@@ -31,6 +31,7 @@ class LLMCallError(Exception):
 
 
 def load_prompt(name: str) -> str:
+    """prompts/ 폴더의 프롬프트 파일을 읽는다."""
     return (PROMPTS_DIR / name).read_text(encoding="utf-8")
 
 
