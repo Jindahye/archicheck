@@ -114,6 +114,12 @@ class FakeStore:
     def save(self, report):
         self.saved.append(json.loads(json.dumps(report)))
 
+    def get(self, report_id):
+        for r in reversed(self.saved):
+            if r.get("id") == report_id:
+                return r
+        return None
+
 
 class FakeClient:
     def __init__(self):
@@ -293,3 +299,42 @@ def test_comment_omits_link_without_valid_base_url():
     assert "수정 방향 선택" not in format_report_comment(report, "")
     assert "수정 방향 선택" not in format_report_comment(report, "1.2.3.4:8000")
     assert "http://1.2.3.4:8000/dashboard/report.html?id=rpt_1_x" in format_report_comment(report, "http://1.2.3.4:8000/")
+
+
+# ---------- 같은 커밋 재수신 시 기존 리포트 보존 (리뷰 의견 1) ----------
+def test_same_commit_reopened_keeps_done_report():
+    """분석이 끝난 커밋이 reopened로 다시 와도 리포트(수정안 포함)를 덮어쓰지 않는다."""
+    tc, client, store = build(OkAnalyzer())
+    assert post(tc, pr_payload()).status_code == 202
+    store.saved[-1]["issues"][0]["fix"] = {"diff": "kept"}  # 사용자가 만든 수정안
+    saved_before = len(store.saved)
+
+    resp = post(tc, pr_payload("reopened"))
+    assert resp.status_code == 202
+    assert resp.json() == {"status": "ignored", "reason": "already analyzed", "reportId": "rpt_12_a1b2c3d"}
+    assert len(store.saved) == saved_before  # 새로 저장하지 않음
+    assert store.saved[-1]["issues"][0]["fix"] == {"diff": "kept"}
+    assert len(client.comments) == 1  # 코멘트도 다시 달지 않음
+
+
+def test_same_commit_after_failure_is_reanalyzed():
+    """실패한 리포트는 같은 커밋으로 다시 오면 (예: 토큰 수정 후 재전송) 다시 분석한다."""
+    tc, _, store = build(BrokenAnalyzer())
+    post(tc, pr_payload())
+    assert store.saved[-1]["status"] == "failed"
+    wh._handler._analyzer = OkAnalyzer()
+    assert post(tc, pr_payload("reopened")).json()["status"] == "accepted"
+    assert store.saved[-1]["status"] == "done"
+
+
+def test_keep_existing_rules():
+    from datetime import datetime, timedelta
+    keep = WebhookHandler._keep_existing
+    now = datetime.now(wh.KST)
+    recent = (now - timedelta(minutes=1)).isoformat()
+    stale = (now - timedelta(minutes=30)).isoformat()
+    assert keep({"status": "done"}) and keep({"status": "resolved"})
+    assert not keep({"status": "failed"})
+    assert keep({"status": "analyzing", "createdAt": recent}, now)  # 진행 중이면 중복 분석 안 함
+    assert not keep({"status": "analyzing", "createdAt": stale}, now)  # 멈춘 분석은 다시
+    assert not keep({"status": "analyzing", "createdAt": "broken"}, now)

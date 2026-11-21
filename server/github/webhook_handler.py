@@ -18,6 +18,10 @@ log = logging.getLogger("archicheck.webhook")
 
 HANDLED_ACTIONS = {"opened", "reopened", "synchronize"}
 KST = timezone(timedelta(hours=9))
+# 같은 커밋(headSha)의 리포트가 이 상태면 다시 분석하지 않는다. 수정안·조치 기록을 지키기 위해서다 (3.1).
+KEEP_STATUSES = {"done", "resolved"}
+# analyzing 상태가 이보다 오래되면 서버 재시작 등으로 멈춘 것으로 보고 다시 분석한다.
+STALE_ANALYZING = timedelta(minutes=10)
 
 
 class _NoDesignDoc(Exception):
@@ -88,6 +92,10 @@ class WebhookHandler:
 
         pr = self._pr_from_payload(payload)
         report = self._new_report(pr)
+        existing = self.store.get(report["id"])
+        if existing and self._keep_existing(existing):
+            # reopened·재전송처럼 같은 커밋이 다시 오면 기존 리포트(수정안 포함)를 그대로 둔다.
+            return {"status": "ignored", "reason": "already analyzed", "reportId": report["id"]}
         self.store.save(report)  # status: analyzing
         background_tasks.add_task(self._run_analysis, pr, report)
         return {"status": "accepted", "reportId": report["id"]}
@@ -151,6 +159,22 @@ class WebhookHandler:
             log.exception("PR 코멘트 게시 실패: %s#%s (GITHUB_TOKEN 권한 확인)", pr.repo, pr.number)
 
     # ---- 보조 ----
+    @staticmethod
+    def _keep_existing(existing: dict, now: datetime | None = None) -> bool:
+        """같은 id의 기존 리포트를 지킬지. failed이거나 오래 멈춘 analyzing이면 다시 분석한다."""
+        status = existing.get("status")
+        if status in KEEP_STATUSES:
+            return True
+        if status == "analyzing":
+            try:
+                created = datetime.fromisoformat(existing.get("createdAt", ""))
+            except ValueError:
+                return False
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=KST)
+            return (now or datetime.now(KST)) - created < STALE_ANALYZING
+        return False  # failed 등: 토큰·설정을 고친 뒤 재전송하면 다시 분석한다
+
     @staticmethod
     def _pr_from_payload(payload: dict) -> PullRequestRef:
         pr = payload["pull_request"]
