@@ -21,7 +21,7 @@ const SAMPLE_JS = fs.readFileSync(path.join(DASHBOARD, "sample-data.js"), "utf8"
 const EXPORTS = [
   "USE_SAMPLE", "api", "auth", "ApiError", "getJson", "reportErrorMessage", "fixErrorMessage",
   "requireLogin", "safeNextPage", "esc", "statusBadge", "formatDate", "githubLink", "githubAnchor", "markSuperseded", "issueStats",
-  "refreshStatus",
+  "refreshStatus", "pushFixHistory",
 ];
 
 function memoryStorage(initial = {}) {
@@ -175,6 +175,19 @@ test.describe("화면 표시 도우미", () => {
     assert.deepEqual(reports.map((r) => [r.id, r.superseded]), [
       ["old", true], ["new", false], ["other", false], ["otherRepo", false],
     ]);
+  });
+
+  test.it("pushFixHistory: 덮어쓰기 전 수정안을 최신순으로 앞에 넣고 5개까지만 둔다", () => {
+    const iss = { direction: "doc", fix: { after: "v6" }, fixHistory: [1, 2, 3, 4, 5].map((n) => ({ fix: { after: "v" + n } })) };
+    const out = app.pushFixHistory(iss, "2026-11-21T05:00:00Z");
+    assert.equal(out.length, 5);
+    // app.js는 다른 vm 컨텍스트라 객체 프로토타입이 달라서 JSON으로 비교한다
+    assert.deepEqual(JSON.parse(JSON.stringify(out[0])), { direction: "doc", fix: { after: "v6" }, replacedAt: "2026-11-21T05:00:00Z" });
+    assert.deepEqual([...out.map((h) => h.fix.after)], ["v6", "v1", "v2", "v3", "v4"]);
+  });
+
+  test.it("pushFixHistory: 아직 수정안이 없으면 이력을 바꾸지 않는다", () => {
+    assert.deepEqual([...app.pushFixHistory({ direction: null, fix: null }, "t")], []);
   });
 
   test.it("githubLink: 경로가 없으면 '-'를 보여 준다", () => {

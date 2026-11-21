@@ -308,6 +308,15 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 }
 .regen-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
 .regen-btn { justify-self: start; }
+/* 이전 수정안: 접어 두고 펼쳐 본다 (3.3 fixHistory) */
+.history { font-size: var(--fs-sm); color: var(--ink-2); }
+.history > summary { cursor: pointer; width: fit-content; }
+.history > summary:hover { color: var(--ink); }
+.history[open] { display: grid; gap: 6px; }
+.history-item { border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--paper); }
+.history-item > summary { cursor: pointer; padding: 8px 12px; color: var(--ink-2); }
+.history-item[open] > summary { border-bottom: 1px solid var(--line-soft); }
+.history-body { padding: 10px; opacity: .92; }
 .fix-placeholder {
   border: 1px dashed var(--ink-3); border-radius: 6px; padding: 12px 14px;
   font-size: var(--fs-sm); color: var(--ink-2); background: var(--paper);

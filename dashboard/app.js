@@ -576,6 +576,7 @@ function issueCard(r, iss, i) {
           placeholder="예: 새 클래스를 만들지 말고 기존 GitHubClient를 쓰도록 고쳐 주세요"></textarea>
         <button type="button" class="btn regen-btn">재분석</button>
       </details>
+      <div class="history-host"></div>
     </article>`;
 }
 
@@ -632,7 +633,9 @@ function bindIssueButtons(r) {
     const buttons = card.querySelectorAll(".btn");   // 방향 버튼 2개 + 재분석 버튼
     const regen = card.querySelector(".regen");
     const feedback = card.querySelector(".regen-input");
+    const historyHost = card.querySelector(".history-host");
     if (iss.direction) showFix(iss, panel);
+    renderHistory(historyHost, iss);
 
     // 수정안 요청. regenerate면 저장된 수정안이 있어도 새로 만든다 (재분석)
     async function run(direction, regenerate) {
@@ -644,8 +647,11 @@ function bindIssueButtons(r) {
       panel.innerHTML = `<div class="fix-loading" role="status">${icon("spinner")}<span>AI가 ${label}을 ${regenerate ? "다시 " : ""}만드는 중입니다. 10~30초 정도 걸릴 수 있습니다.</span></div>`;
       try {
         const result = await api.requestFix(r.id, iss.id, direction, { regenerate, feedback: feedback ? feedback.value : "" });
+        // 서버와 같은 규칙으로 덮어쓰기 전 수정안을 이력에 남긴다 (3.3 fixHistory, 최신순 최대 5개)
+        iss.fixHistory = pushFixHistory(iss, new Date().toISOString());
         iss.direction = result.direction ?? direction;
         iss.fix = result.fix ?? null;
+        renderHistory(historyHost, iss);
         card.dataset.direction = iss.direction;
         buttons.forEach((b) => b.dataset.dir && b.setAttribute("aria-pressed", b.dataset.dir === iss.direction));
         choice.textContent = regenerate ? `${label}을 재분석했습니다` : `${DIRECTION_LABEL[iss.direction]}으로 정했습니다`;
@@ -677,6 +683,40 @@ function bindIssueButtons(r) {
 
     const regenBtn = card.querySelector(".regen-btn");
     if (regenBtn) regenBtn.addEventListener("click", () => { if (iss.direction) run(iss.direction, true); });
+  });
+}
+
+// ===== 이전 수정안 (재분석·방향 전환 전 수정안, 접어 두고 펼쳐 본다) =====
+const FIX_HISTORY_MAX = 5;
+
+function pushFixHistory(iss, replacedAt) {
+  const history = iss.fixHistory || [];
+  if (!iss.fix) return history;
+  return [{ direction: iss.direction, fix: iss.fix, replacedAt }, ...history].slice(0, FIX_HISTORY_MAX);
+}
+
+function renderHistory(host, iss) {
+  if (!host) return;
+  const list = iss.fixHistory || [];
+  if (!list.length) { host.innerHTML = ""; return; }
+  host.innerHTML = `
+    <details class="history">
+      <summary>이전 수정안 ${list.length}개</summary>
+      ${list.map((h, i) => `
+        <details class="history-item" data-index="${i}">
+          <summary>${i + 1}. ${esc(DIRECTION_LABEL[h.direction] || "수정")}안 · ${formatDate(h.replacedAt)}에 교체됨</summary>
+          <div class="history-body"></div>
+        </details>`).join("")}
+    </details>`;
+  // 펼칠 때 그린다 (수정안 패널과 같은 화면, 다이어그램도 그때 그림)
+  host.querySelectorAll(".history-item").forEach((item) => {
+    item.addEventListener("toggle", () => {
+      const body = item.querySelector(".history-body");
+      if (!item.open || body.dataset.done) return;
+      const h = list[Number(item.dataset.index)];
+      showFix({ id: iss.id, direction: h.direction, fix: h.fix }, body);
+      body.dataset.done = "1";
+    });
   });
 }
 

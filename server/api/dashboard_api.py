@@ -7,6 +7,7 @@ from __future__ import annotations
 import hmac
 import logging
 import os
+from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Literal
 
@@ -16,6 +17,11 @@ from pydantic import BaseModel, Field
 from server.store.report_store import ReportStore
 
 log = logging.getLogger("archicheck.dashboard")
+FIX_HISTORY_MAX = 5  # issues[].fixHistory에 남기는 이전 수정안 수 (3.3)
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 # 세션에 로그인 여부를 저장하는 키
 SESSION_KEY = "logged_in"
@@ -124,6 +130,10 @@ class DashboardAPI:
         # 생성하는 동안 리포트가 바뀌었을 수 있으므로 다시 읽어 이 issue만 갱신한다.
         latest = self.get_report(report_id)
         target = _find_issue(latest, issue_id)
+        if target.get("fix"):
+            # 재분석·방향 전환으로 덮어쓰기 전에 기존 수정안을 이력에 남긴다 (3.3 fixHistory, 최신순 최대 5개)
+            old = {"direction": target.get("direction"), "fix": target["fix"], "replacedAt": _now_iso()}
+            target["fixHistory"] = [old, *(target.get("fixHistory") or [])][:FIX_HISTORY_MAX]
         target["direction"] = direction
         target["fix"] = fix
         if all(i.get("fix") for i in latest.get("issues", [])):

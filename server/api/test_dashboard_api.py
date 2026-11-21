@@ -363,6 +363,40 @@ def test_fix_regenerate_failure_keeps_previous_fix(fix_client, store, sample, ge
     assert store.get(sample["id"])["issues"][0]["fix"] == CODE_FIX
 
 
+# --- 이전 수정안 보관 (fixHistory) ---
+
+
+def test_fix_history_keeps_replaced_fix_newest_first(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})                       # CODE_FIX
+    generator.code_result = {"diff": "두 번째"}
+    fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})   # CODE_FIX → 이력
+    fix_client.post(fix_url(), json={"direction": "doc"})                        # 두 번째 → 이력
+
+    issue = store.get(sample["id"])["issues"][0]
+    assert issue["fix"] == DOC_FIX
+    assert [(h["direction"], h["fix"]) for h in issue["fixHistory"]] == [("code", {"diff": "두 번째"}), ("code", CODE_FIX)]
+    assert all(h["replacedAt"] for h in issue["fixHistory"])
+
+
+def test_fix_history_is_limited(fix_client, store, sample, generator):
+    store.save(sample)
+    for n in range(8):
+        generator.code_result = {"diff": f"v{n}"}
+        fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})
+    history = store.get(sample["id"])["issues"][0]["fixHistory"]
+    assert [h["fix"]["diff"] for h in history] == ["v6", "v5", "v4", "v3", "v2"]
+
+
+def test_fix_history_not_added_on_first_fix_or_failure(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    assert "fixHistory" not in store.get(sample["id"])["issues"][0]
+    generator.error = LLMCallError("gemini down")
+    fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})
+    assert "fixHistory" not in store.get(sample["id"])["issues"][0]
+
+
 def test_fix_status_becomes_resolved_when_all_issues_have_fix(fix_client, store, sample):
     store.save(two_issue_report(sample))
     fix_client.post(fix_url(issue_id="iss_1"), json={"direction": "code"})
