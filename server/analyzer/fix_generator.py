@@ -35,16 +35,18 @@ class FixGenerator:
         self.code_prompt = load_prompt("code_fix.md")
         self.doc_prompt = load_prompt("doc_revision.md")
 
-    def code_fix(self, issue: dict, design_doc: str, code: str) -> dict:
+    def code_fix(self, issue: dict, design_doc: str, code: str, feedback: str | None = None) -> dict:
         """코드 수정안을 만든다.
 
-        입력: issue(3.3 issues[] 항목), design_doc(designRef 문서 전문), code(codeRef 파일 전문)
+        입력: issue(3.3 issues[] 항목), design_doc(designRef 문서 전문), code(codeRef 파일 전문),
+              feedback(재분석 때 사용자 요청 문구, 선택)
         반환: {"diff": "..."}
         """
         user = (
             f"{_issue_block(issue)}\n\n"
             f"{_design_doc_block(issue, design_doc)}\n\n"
             f'<code path="{issue["codeRef"]}">\n{code}\n</code>'
+            f"{_feedback_block(feedback)}"
         )
         try:
             result = call_structured(self.client, self.code_prompt, user, _CodeFixOutput)
@@ -52,14 +54,14 @@ class FixGenerator:
             raise FixError(str(e)) from e
         return {"diff": result.diff}
 
-    def doc_revision(self, issue: dict, design_doc: str) -> dict:
+    def doc_revision(self, issue: dict, design_doc: str, feedback: str | None = None) -> dict:
         """문서 개정안을 만든다.
 
-        입력: issue(3.3 issues[] 항목), design_doc(designRef 문서 전문)
+        입력: issue(3.3 issues[] 항목), design_doc(designRef 문서 전문), feedback(재분석 때 사용자 요청 문구, 선택)
         반환: {"before": "...", "after": "...", "mermaid": "..." | None}
         Mermaid 문법 오류가 최대 횟수만큼 다시 만들어도 남으면 FixError.
         """
-        base = f"{_issue_block(issue)}\n\n{_design_doc_block(issue, design_doc)}"
+        base = f"{_issue_block(issue)}\n\n{_design_doc_block(issue, design_doc)}{_feedback_block(feedback)}"
         user = base
         for attempt in range(MAX_MERMAID_RETRIES + 1):
             try:
@@ -105,3 +107,11 @@ def _issue_block(issue: dict) -> str:
 def _design_doc_block(issue: dict, design_doc: str) -> str:
     path = issue["designRef"].split("#", 1)[0]
     return f'<design_doc path="{path}">\n{design_doc}\n</design_doc>'
+
+
+def _feedback_block(feedback: str | None) -> str:
+    """재분석 때 사용자가 적은 요청 문구. 없으면 빈 문자열이라 기존 요청과 같다."""
+    text = (feedback or "").strip()
+    if not text:
+        return ""
+    return f"\n\n<user_feedback>\n{text}\n</user_feedback>"

@@ -37,11 +37,17 @@ const api = {
     }
     return getJson(`${API_BASE}/api/reports/${encodeURIComponent(id)}`);
   },
-  async requestFix(reportId, issueId, direction) {
+  // 재분석: { regenerate: true, feedback: "..." }를 함께 보내면 저장된 수정안 대신 새로 만든다 (설계 문서 3.4)
+  async requestFix(reportId, issueId, direction, { regenerate = false, feedback = "" } = {}) {
     if (USE_SAMPLE) return { direction, fix: null };   // 샘플 모드: 서버 호출 없이 선택만 반영
+    const body = { direction };
+    if (regenerate) {
+      body.regenerate = true;
+      if (feedback.trim()) body.feedback = feedback.trim();
+    }
     return getJson(
       `${API_BASE}/api/reports/${encodeURIComponent(reportId)}/issues/${encodeURIComponent(issueId)}/fix`,
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ direction }) }
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }
     );
   },
 };
@@ -537,6 +543,13 @@ function issueCard(r, iss, i) {
         <span class="choice">${dir ? `${DIRECTION_LABEL[dir]}으로 정했습니다` : "코드를 고칠지, 설계 문서를 고칠지 골라 주세요"}</span>
       </div>
       <div class="fix-panel"></div>
+      <details class="regen" ${iss.fix ? "" : "hidden"}>
+        <summary>수정안이 마음에 들지 않으면 재분석</summary>
+        <label class="regen-label" for="fb-${esc(iss.id)}">원하는 방향 (선택, 500자 이내)</label>
+        <textarea id="fb-${esc(iss.id)}" class="regen-input" maxlength="500" rows="2"
+          placeholder="예: 새 클래스를 만들지 말고 기존 GitHubClient를 쓰도록 고쳐 주세요"></textarea>
+        <button type="button" class="btn regen-btn">재분석</button>
+      </details>
     </article>`;
 }
 
@@ -590,40 +603,54 @@ function bindIssueButtons(r) {
     const iss = r.issues.find((x) => x.id === card.dataset.issue);
     const panel = card.querySelector(".fix-panel");
     const choice = card.querySelector(".choice");
-    const buttons = card.querySelectorAll(".btn");
+    const buttons = card.querySelectorAll(".btn");   // 방향 버튼 2개 + 재분석 버튼
+    const regen = card.querySelector(".regen");
+    const feedback = card.querySelector(".regen-input");
     if (iss.direction) showFix(iss, panel);
 
+    // 수정안 요청. regenerate면 저장된 수정안이 있어도 새로 만든다 (재분석)
+    async function run(direction, regenerate) {
+      buttons.forEach((b) => (b.disabled = true));
+      choice.classList.remove("error");
+      const label = `${DIRECTION_LABEL[direction]}안`;
+      choice.textContent = regenerate ? `${label}을 재분석하는 중입니다…` : `${label}을 만드는 중입니다…`;
+      // 예전 수정안 대신 진행 표시를 보여 준다 (AI 응답에 10~30초 걸릴 수 있음)
+      panel.innerHTML = `<div class="fix-loading" role="status">${icon("spinner")}<span>AI가 ${label}을 ${regenerate ? "다시 " : ""}만드는 중입니다. 10~30초 정도 걸릴 수 있습니다.</span></div>`;
+      try {
+        const result = await api.requestFix(r.id, iss.id, direction, { regenerate, feedback: feedback ? feedback.value : "" });
+        iss.direction = result.direction ?? direction;
+        iss.fix = result.fix ?? null;
+        card.dataset.direction = iss.direction;
+        buttons.forEach((b) => b.dataset.dir && b.setAttribute("aria-pressed", b.dataset.dir === iss.direction));
+        choice.textContent = regenerate ? `${label}을 재분석했습니다` : `${DIRECTION_LABEL[iss.direction]}으로 정했습니다`;
+        showFix(iss, panel);
+        if (regen) regen.hidden = !iss.fix;
+        if (regenerate && feedback) { feedback.value = ""; regen.open = false; }
+        refreshProgress(r);
+        refreshStatus(r);
+      } catch (e) {
+        // 실패하면 서버는 아무것도 저장하지 않는다 → 이전 선택과 수정안을 다시 보여 준다
+        if (iss.direction) showFix(iss, panel);
+        else panel.innerHTML = "";
+        choice.classList.add("error");
+        choice.textContent = fixErrorMessage(e);
+      } finally {
+        buttons.forEach((b) => (b.disabled = false));
+      }
+    }
+
     buttons.forEach((btn) => {
-      btn.addEventListener("click", async () => {
+      if (!btn.dataset.dir) return;   // 재분석 버튼은 아래에서 따로 연결
+      btn.addEventListener("click", () => {
         const direction = btn.dataset.dir;
         // 이미 고른 방향이고 수정안도 있으면 서버가 저장된 값을 그대로 주므로 부르지 않는다
         if (iss.direction === direction && iss.fix) return;
-        buttons.forEach((b) => (b.disabled = true));
-        choice.classList.remove("error");
-        choice.textContent = `${DIRECTION_LABEL[direction]}안을 만드는 중입니다…`;
-        // 예전 수정안 대신 진행 표시를 보여 준다 (AI 응답에 10~30초 걸릴 수 있음)
-        panel.innerHTML = `<div class="fix-loading" role="status">${icon("spinner")}<span>AI가 ${DIRECTION_LABEL[direction]}안을 만드는 중입니다. 10~30초 정도 걸릴 수 있습니다.</span></div>`;
-        try {
-          const result = await api.requestFix(r.id, iss.id, direction);
-          iss.direction = result.direction ?? direction;
-          iss.fix = result.fix ?? null;
-          card.dataset.direction = iss.direction;
-          buttons.forEach((b) => b.setAttribute("aria-pressed", b.dataset.dir === iss.direction));
-          choice.textContent = `${DIRECTION_LABEL[iss.direction]}으로 정했습니다`;
-          showFix(iss, panel);
-          refreshProgress(r);
-          refreshStatus(r);
-        } catch (e) {
-          // 실패하면 서버는 아무것도 저장하지 않는다 → 이전 선택과 수정안을 다시 보여 준다
-          if (iss.direction) showFix(iss, panel);
-          else panel.innerHTML = "";
-          choice.classList.add("error");
-          choice.textContent = fixErrorMessage(e);
-        } finally {
-          buttons.forEach((b) => (b.disabled = false));
-        }
+        run(direction, false);
       });
     });
+
+    const regenBtn = card.querySelector(".regen-btn");
+    if (regenBtn) regenBtn.addEventListener("click", () => { if (iss.direction) run(iss.direction, true); });
   });
 }
 

@@ -19,6 +19,7 @@
 | v0.7 | 2026.11.20 | 진다혜 | 6장 개선 과제 추가 (수정 방향 전환 시 수정안 재생성) |
 | v0.8 | 2026.11.21 | 진다혜 | 실제 구현에 맞춰 현행화: 3.6·3.7 PR 코멘트 형식 담당(⑤ → ②), 발표 자료 담당, 4장 테스트 수·E2E 결과·발견한 문제, 6장 개선 과제 5건 추가 |
 | v0.9 | 2026.11.21 | 진다혜 | 4.2 E2E 시험 PR 묶음(#18~#22) 결과와 발견한 문제, 6장 개선 과제(분석 정확도·문서 개정 시 코드 전달) 추가, 실패 원인·링크 과제 보강 |
+| v1.0 | 2026.11.21 | 진다혜 | 수정안 재분석 추가: 3.4 수정안 API에 `regenerate`·`feedback`, 3.2 `FixGenerator` `feedback` 인자. 4.1 테스트 수, 4.2 오탐 확인(#23) |
 
 ## 1. 요구사항
 
@@ -252,8 +253,8 @@ classDiagram
         +analyze(diff, designDocs, commits) Report
     }
     class FixGenerator {
-        +codeFix(issue, designDoc, code) CodeFix
-        +docRevision(issue, designDoc) DocRevision
+        +codeFix(issue, designDoc, code, feedback) CodeFix
+        +docRevision(issue, designDoc, feedback) DocRevision
     }
     class DiagramValidator {
         +validate(mermaidCode) str | None
@@ -292,6 +293,7 @@ classDiagram
 - `FixGenerator`의 입출력:
   - `codeFix(issue, designDoc, code)`: `issue`는 3.3 `issues[]` 항목, `designDoc`은 `designRef` 경로(`#` 앞) 문서 전문, `code`는 `codeRef` 파일 전문. 반환 `{ "diff": "..." }`.
   - `docRevision(issue, designDoc)`: 반환 `{ "before": "...", "after": "...", "mermaid": "..." | null }`. `before`는 설계 문서에 있는 문구 그대로다.
+  - `feedback`(선택): 재분석(3.4) 때 사용자가 적은 요청 문구. 있으면 프롬프트에 `<user_feedback>`으로 넣고, 설계 문서·코드와 어긋나지 않는 범위에서 반영한다.
   - 문서·코드 전문은 `DashboardAPI`가 `GitHubClient.getFile(repo, headSha, 경로)`로 가져와 넘긴다.
   - 실패하면 `FixError`를 던진다. Mermaid 문법 오류가 재생성 2회 뒤에도 남으면 실패로 본다 (NFR-5).
 - `DiagramValidator.validate(mermaidCode)`는 문법이 맞으면 `None`, 틀리면 오류 메시지 문자열을 돌려준다. 오류 메시지는 `FixGenerator`가 재생성 요청에 넣는다 (NFR-5).
@@ -354,7 +356,7 @@ classDiagram
 | POST | `/api/logout` | 세션 | 세션 쿠키 삭제 |
 | GET | `/api/reports` | 세션 | 분석 이력 목록 |
 | GET | `/api/reports/{id}` | 세션 | 리포트 상세 |
-| POST | `/api/reports/{id}/issues/{issueId}/fix` | 세션 | 수정 방향 선택 및 수정안 생성. 요청 본문: `{ "direction": "code" }` 또는 `{ "direction": "doc" }` |
+| POST | `/api/reports/{id}/issues/{issueId}/fix` | 세션 | 수정 방향 선택 및 수정안 생성. 요청 본문: `{ "direction": "code" }` 또는 `{ "direction": "doc" }`. 같은 방향으로 다시 요청하면 저장된 수정안을 돌려준다. **재분석:** `{ "direction": "doc", "regenerate": true, "feedback": "..." }`처럼 `regenerate`를 넣으면 저장된 값을 쓰지 않고 새로 만들어 덮어쓴다. `feedback`(선택, 500자 이하)은 사용자의 요청 문구로, 수정안 생성 프롬프트에 함께 넣는다. 두 칸을 빼면 기존과 같다 |
 
 #### 대시보드 인증
 
@@ -444,8 +446,8 @@ archicheck/
 
 | 대상 | 실행 | 테스트 수 (2026.11.21) |
 | --- | --- | --- |
-| 서버 (`server/` 전체) | `pytest` | 145 |
-| 대시보드 화면 (`dashboard/app.js`) | `node --test dashboard/tests/app.test.js` | 30 |
+| 서버 (`server/` 전체) | `pytest` | 153 |
+| 대시보드 화면 (`dashboard/app.js`) | `node --test dashboard/tests/app.test.js` | 32 |
 | 수정안 패널 (`dashboard/fix-panel.js`) | `node --test dashboard/tests/fix-panel.test.js` | 11 |
 
 - `server/diagram` 테스트 8개는 `server/diagram`에서 `npm ci`를 한 환경에서만 실행되고, 아니면 건너뛴다.
@@ -465,7 +467,7 @@ NCP 서버(2.4)에 배포한 상태로, 대상 레포에 실제 PR을 올려 Web
 | A2. 문서가 낡은 경우: 시퀀스 다이어그램 | #19: 정합성 분석을 Gemini 1회 호출에서 2회 호출(요약 → 분석)로 변경 (3.1 다이어그램은 1회) | 실패. 프롬프트 보강 후에도 불일치 0건 |
 | B. 코드가 설계를 어긴 경우 | #15: `server/analyzer/`에서 httpx로 GitHub API를 직접 호출 (3.2 "GitHub API 호출은 `GitHubClient`에서만" 위반) | 통과. 불일치 1건("GitHub API 호출은 GitHubClient 모듈을 거쳐야 함")을 찾음. PR 코멘트 게시, 대시보드 표시, 코드 수정안·문서 개정안 생성 확인 |
 | B2. 한 파일에서 원칙 3개 위반 | #20: 새 모듈이 SQLite 직접 저장(`ReportStore` 우회), GitHub API 직접 호출, Gemini 직접 호출(`llm_call.py` 우회) | 일부 통과. 위반을 찾았지만 1건으로 묶었고, Gemini 직접 호출은 따로 짚지 못함 |
-| C. 설계를 지킨 변경 | #16(대시보드 CSS 수정), #17(수정안 패널 추가): 팀원이 올린 실제 PR | 통과. 두 PR 모두 불일치 0건, PR 코멘트에 변경 설명과 대시보드 링크 게시 |
+| C. 설계를 지킨 변경 | #16(대시보드 CSS 수정), #17(수정안 패널 추가): 팀원이 올린 실제 PR. #23: 함수 설명 주석만 추가 (프롬프트 보강 후 오탐 확인용) | 통과. 세 PR 모두 불일치 0건, PR 코멘트에 변경 설명과 대시보드 링크 게시 |
 | D. 커밋 메시지와 실제 변경이 다름 | #21: 커밋 메시지는 "docs: 주석 오타 수정"인데 기본 모델, 재시도 횟수, 시간 제한도 바꿈 | 통과. 변경 요약에 "커밋 메시지에 없는 변경 3건" 경고. 바뀐 모델이 이 문서와 다르다는 불일치 1건도 찾음 |
 | E. 분석 실패 | #22: `.archicheck.yml`이 없는 문서(`docs/ARCHITECTURE.md`)를 가리킴 | 통과. 리포트 `failed`, PR에 실패 코멘트, 대시보드에 실패 안내. 단 코멘트에 원인이 없음 (아래 발견한 문제) |
 

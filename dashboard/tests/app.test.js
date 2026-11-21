@@ -253,6 +253,18 @@ test.describe("서버 API 연결", () => {
     assert.deepEqual(result, { direction: "code", fix });
   });
 
+  test.it("재분석: regenerate와 앞뒤 공백을 뺀 feedback을 함께 보낸다", async () => {
+    const { app, env } = loadApp({ fetch: async () => response(200, { direction: "doc", fix: {} }) });
+    await app.api.requestFix("rpt_1", "iss_1", "doc", { regenerate: true, feedback: "  실제 메서드 이름으로  " });
+    assert.deepEqual(JSON.parse(env.requests[0].body), { direction: "doc", regenerate: true, feedback: "실제 메서드 이름으로" });
+  });
+
+  test.it("재분석: feedback이 비어 있으면 regenerate만 보낸다", async () => {
+    const { app, env } = loadApp({ fetch: async () => response(200, { direction: "code", fix: {} }) });
+    await app.api.requestFix("rpt_1", "iss_1", "code", { regenerate: true, feedback: "   " });
+    assert.deepEqual(JSON.parse(env.requests[0].body), { direction: "code", regenerate: true });
+  });
+
   test.it("서버 오류는 상태 코드를 담은 ApiError로 알려 준다", async () => {
     const { app } = loadApp({ fetch: async () => response(500) });
     await assert.rejects(app.api.listReports(), (e) => e instanceof app.ApiError && e.status === 500);

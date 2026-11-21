@@ -11,7 +11,7 @@ from functools import lru_cache
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from server.store.report_store import ReportStore
 
@@ -63,12 +63,20 @@ class DashboardAPI:
             raise HTTPException(status_code=404, detail="Report not found")
         return report
 
-    def request_fix(self, report_id: str, issue_id: str, direction: str) -> dict:
+    def request_fix(
+        self,
+        report_id: str,
+        issue_id: str,
+        direction: str,
+        regenerate: bool = False,
+        feedback: str | None = None,
+    ) -> dict:
         """수정 방향을 정하고 수정안을 만들어 리포트에 저장한다 (3.4).
 
         direction: "code" 또는 "doc". 반환: {"direction": ..., "fix": ...}
 
         - 같은 issue에 같은 direction으로 다시 요청하면 저장된 수정안을 그대로 돌려준다.
+        - regenerate=True(재분석)면 저장된 값을 쓰지 않고 새로 만들어 덮어쓴다. feedback은 생성 프롬프트에 넣는다.
         - direction이 바뀌면 새로 만들어 기존 값을 덮어쓴다.
         - 수정안 생성이나 검증에 실패하면 아무것도 저장하지 않는다.
         """
@@ -80,7 +88,7 @@ class DashboardAPI:
                 status_code=409, detail=f"Report is {report.get('status')}; fix not available"
             )
 
-        if issue.get("direction") == direction and issue.get("fix"):
+        if not regenerate and issue.get("direction") == direction and issue.get("fix"):
             return {"direction": direction, "fix": issue["fix"]}
 
         design_path = str(issue.get("designRef") or "").split("#", 1)[0].strip()
@@ -93,13 +101,15 @@ class DashboardAPI:
         github = self._get_github()
         generator = self._get_fix_generator()
         repo, ref = report.get("repo"), report.get("headSha")
+        # feedback이 있을 때만 넘긴다 (없으면 기존 호출과 같음)
+        extra = {"feedback": feedback.strip()} if feedback and feedback.strip() else {}
         try:
             design_doc = github.get_file(repo, ref, design_path)
             if direction == "code":
                 code = github.get_file(repo, ref, code_path)
-                raw = generator.code_fix(dict(issue), design_doc, code)
+                raw = generator.code_fix(dict(issue), design_doc, code, **extra)
             else:
-                raw = generator.doc_revision(dict(issue), design_doc)
+                raw = generator.doc_revision(dict(issue), design_doc, **extra)
         except FileNotFoundError as e:
             raise HTTPException(status_code=404, detail=f"File not found in repository: {e}") from e
         except Exception as e:  # noqa: BLE001 - 아래에서 외부 실패와 내부 오류를 나눈다
@@ -205,6 +215,8 @@ class LoginRequest(BaseModel):
 
 class FixRequest(BaseModel):
     direction: Literal["code", "doc"]
+    regenerate: bool = False  # 재분석: 저장된 수정안이 있어도 새로 만든다
+    feedback: str | None = Field(default=None, max_length=500)  # 재분석 요청 문구 (선택)
 
 
 router = APIRouter(prefix="/api")
@@ -245,4 +257,4 @@ def request_fix(
     api: DashboardAPI = Depends(get_dashboard_api),
 ) -> dict:
     # 일부러 async가 아닌 def: Gemini·GitHub 호출이 오래 걸려서 스레드풀에서 돌린다.
-    return api.request_fix(id, issue_id, body.direction)
+    return api.request_fix(id, issue_id, body.direction, body.regenerate, body.feedback)
