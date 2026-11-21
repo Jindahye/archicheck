@@ -498,7 +498,7 @@ function statusNotice(r) {
   }
   if (r.status === "failed") {
     return `<div class="notice failed">${icon("alert")}<div><strong>분석하지 못했습니다</strong>
-      <p>설계 문서를 찾지 못했거나 분석 중 오류가 났습니다. 레포 루트의 <code>.archicheck.yml</code>에 설계 문서 경로를 적은 뒤 PR에 커밋을 다시 올려 주세요.</p></div></div>`;
+      <p>설계 문서를 찾지 못했거나 AI 분석 중 오류(응답 지연, 사용량 초과 등)가 났습니다. PR에 커밋을 다시 올리면 새로 분석합니다. 설계 문서를 못 찾은 경우에는 레포 루트의 <code>.archicheck.yml</code>에 설계 문서 경로를 적어 주세요.</p></div></div>`;
   }
   if (!r.issues || r.issues.length === 0) {
     return `<div class="notice ok">${icon("check")}<div><strong>설계와 일치합니다</strong>
@@ -522,7 +522,7 @@ function issueCard(r, iss, i) {
   return `
     <article class="issue" data-issue="${esc(iss.id)}" data-direction="${esc(dir)}">
       <div class="issue-head">
-        <span class="issue-no">불일치 ${i + 1} · ${esc(iss.id)}</span>
+        <span class="issue-no">불일치 ${i + 1}</span>
         <h3>${esc(iss.title)}</h3>
         <p class="detail">${esc(iss.detail)}</p>
       </div>
@@ -596,9 +596,13 @@ function bindIssueButtons(r) {
     buttons.forEach((btn) => {
       btn.addEventListener("click", async () => {
         const direction = btn.dataset.dir;
+        // 이미 고른 방향이고 수정안도 있으면 서버가 저장된 값을 그대로 주므로 부르지 않는다
+        if (iss.direction === direction && iss.fix) return;
         buttons.forEach((b) => (b.disabled = true));
         choice.classList.remove("error");
-        choice.textContent = `${DIRECTION_LABEL[direction]}안을 만드는 중입니다. AI 응답에 시간이 걸릴 수 있습니다…`;
+        choice.textContent = `${DIRECTION_LABEL[direction]}안을 만드는 중입니다…`;
+        // 예전 수정안 대신 진행 표시를 보여 준다 (AI 응답에 10~30초 걸릴 수 있음)
+        panel.innerHTML = `<div class="fix-loading" role="status">${icon("spinner")}<span>AI가 ${DIRECTION_LABEL[direction]}안을 만드는 중입니다. 10~30초 정도 걸릴 수 있습니다.</span></div>`;
         try {
           const result = await api.requestFix(r.id, iss.id, direction);
           iss.direction = result.direction ?? direction;
@@ -610,7 +614,9 @@ function bindIssueButtons(r) {
           refreshProgress(r);
           refreshStatus(r);
         } catch (e) {
-          // 실패하면 서버는 아무것도 저장하지 않는다 → 이전 선택은 그대로 둔다
+          // 실패하면 서버는 아무것도 저장하지 않는다 → 이전 선택과 수정안을 다시 보여 준다
+          if (iss.direction) showFix(iss, panel);
+          else panel.innerHTML = "";
           choice.classList.add("error");
           choice.textContent = fixErrorMessage(e);
         } finally {

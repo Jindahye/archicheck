@@ -281,6 +281,12 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 /* ⑤ 담당 수정안 패널 자리 */
 .fix-panel:empty { display: none; }
+.fix-loading {
+  display: flex; align-items: center; gap: 10px; padding: 14px;
+  border: 1px dashed var(--line); border-radius: var(--radius);
+  font-size: var(--fs-sm); color: var(--ink-2); background: var(--paper);
+}
+.fix-loading .ico { width: 18px; height: 18px; flex: none; color: var(--accent); animation: spin 1.2s linear infinite; }
 .fix-placeholder {
   border: 1px dashed var(--ink-3); border-radius: 6px; padding: 12px 14px;
   font-size: var(--fs-sm); color: var(--ink-2); background: var(--paper);
@@ -356,5 +362,5 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .status.analyzing .ico, .notice.analyzing .ico { animation: none; }
+  .status.analyzing .ico, .notice.analyzing .ico, .fix-loading .ico { animation: none; }
 }
