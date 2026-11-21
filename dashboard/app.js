@@ -212,11 +212,24 @@ function renderLogin() {
     document.getElementById("login-note").textContent = "샘플 모드에서는 아무 비밀번호나 통과합니다.";
   }
 
+  // 비밀번호 칸 오른쪽 눈 아이콘: 누를 때마다 보이기/가리기 (아이콘 모양은 aria-pressed로 CSS가 바꿈)
+  toggle.addEventListener("mousedown", (e) => e.preventDefault());   // 눌러도 입력 칸 커서가 그대로 남게
   toggle.addEventListener("click", () => {
     const show = input.type === "password";
     input.type = show ? "text" : "password";
-    toggle.textContent = show ? "숨기기" : "보기";
+    const label = show ? "비밀번호 숨기기" : "비밀번호 보기";
+    toggle.setAttribute("aria-pressed", String(show));
+    toggle.setAttribute("aria-label", label);
+    toggle.title = label;
   });
+  // Caps Lock이 켜져 있으면 알려 준다 (비밀번호가 틀리는 흔한 이유)
+  const caps = document.getElementById("caps-note");
+  if (caps) {
+    const checkCaps = (e) => { if (e.getModifierState) caps.hidden = !e.getModifierState("CapsLock"); };
+    input.addEventListener("keydown", checkCaps);
+    input.addEventListener("keyup", checkCaps);
+    input.addEventListener("blur", () => { caps.hidden = true; });
+  }
   input.addEventListener("input", () => { error.textContent = ""; input.removeAttribute("aria-invalid"); });
 
   form.addEventListener("submit", async (e) => {
