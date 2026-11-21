@@ -11,15 +11,15 @@ from pydantic import BaseModel, ValidationError
 
 # GEMINI_MODEL 환경 변수가 없을 때 쓰는 모델. 무료 등급 한도가 넉넉한(분당 15회, 하루 500회) Flash Lite를 쓴다.
 # "gemini-flash-latest" 같은 별칭은 SDK가 쓰는 v1 API에서 404가 나므로 정확한 모델 ID를 적는다.
-DEFAULT_MODEL = "gemini-3.5-flash-lite"
+DEFAULT_MODEL = "gemini-3.5-pro"
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
 # Gemini 일시 오류(429 한도, 500, 503 수요 과다)는 잠깐 뒤 다시 시도한다 (E2E에서 503이 실제로 났다, DESIGN.md 4.2).
-# 최대 3번 시도, 2초 → 4초 간격. 응답이 오지 않는 요청은 90초에서 끊는다.
+# 최대 3번 시도하고, 2초 → 4초 간격으로 기다린다. 응답이 오지 않는 요청은 90초에서 끊는다.
 HTTP_OPTIONS = types.HttpOptions(
-    timeout=90_000,  # 밀리초
+    timeout=20_000,  # 밀리초
     retry_options=types.HttpRetryOptions(
-        attempts=3, initial_delay=2.0, max_delay=8.0, http_status_codes=[429, 500, 503]
+        attempts=1, initial_delay=2.0, max_delay=8.0, http_status_codes=[429, 500, 503]
     ),
 )
 
