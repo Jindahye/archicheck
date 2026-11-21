@@ -20,7 +20,7 @@ const SAMPLE_JS = fs.readFileSync(path.join(DASHBOARD, "sample-data.js"), "utf8"
 
 const EXPORTS = [
   "USE_SAMPLE", "api", "auth", "ApiError", "getJson", "reportErrorMessage", "fixErrorMessage",
-  "requireLogin", "safeNextPage", "esc", "statusBadge", "formatDate", "githubLink", "issueStats",
+  "requireLogin", "safeNextPage", "esc", "statusBadge", "formatDate", "githubLink", "githubAnchor", "markSuperseded", "issueStats",
   "refreshStatus",
 ];
 
@@ -156,6 +156,25 @@ test.describe("화면 표시 도우미", () => {
       "https://github.com/owner/target-repo/blob/a1b2c3d/docs/architecture.md#" + encodeURIComponent("인증-흐름"),
     );
     assert.match(html, />docs\/architecture\.md#인증 흐름</);
+  });
+
+  test.it("githubAnchor: GitHub 제목 앵커 규칙대로 점·괄호를 지우고 공백을 -로 바꾼다", () => {
+    assert.equal(app.githubAnchor("3.2 서버 모듈 구조 (클래스 다이어그램)"), "32-서버-모듈-구조-클래스-다이어그램");
+    assert.equal(app.githubAnchor(" Webhook_Handler: 흐름 "), "webhook_handler-흐름");
+    assert.equal(app.githubAnchor("2.4 배포 구성"), "24-배포-구성");
+  });
+
+  test.it("markSuperseded: 같은 PR은 가장 최근 리포트만 현재로 두고 나머지를 이전 커밋으로 표시한다", () => {
+    const reports = [
+      { id: "old", repo: "o/r", pr: 20, createdAt: "2026-11-21T04:30:00Z" },
+      { id: "new", repo: "o/r", pr: 20, createdAt: "2026-11-21T04:40:00Z" },
+      { id: "other", repo: "o/r", pr: 21, createdAt: "2026-11-21T04:00:00Z" },
+      { id: "otherRepo", repo: "x/y", pr: 20, createdAt: "2026-11-21T04:00:00Z" },
+    ];
+    app.markSuperseded(reports);
+    assert.deepEqual(reports.map((r) => [r.id, r.superseded]), [
+      ["old", true], ["new", false], ["other", false], ["otherRepo", false],
+    ]);
   });
 
   test.it("githubLink: 경로가 없으면 '-'를 보여 준다", () => {

@@ -248,8 +248,27 @@ function githubLink(repo, sha, ref) {
   if (!ref) return `<span class="muted">-</span>`;
   const [path, section] = ref.split("#");
   let url = `https://github.com/${repo}/blob/${sha}/${path}`;
-  if (section) url += "#" + encodeURIComponent(section.trim().toLowerCase().replace(/\s+/g, "-"));
+  if (section) url += "#" + encodeURIComponent(githubAnchor(section));
   return `<a href="${esc(url)}" target="_blank" rel="noopener" class="mono">${esc(ref)}</a>`;
+}
+
+// GitHub 제목 앵커 규칙: 소문자, 문장 부호(점·괄호 등) 삭제, 공백 하나마다 "-" (한글은 그대로)
+// 예: "3.2 서버 모듈 구조 (클래스 다이어그램)" → "32-서버-모듈-구조-클래스-다이어그램"
+function githubAnchor(section) {
+  return section.trim().toLowerCase().replace(/[^\p{L}\p{M}\p{N}\s_-]/gu, "").replace(/\s/g, "-");
+}
+
+// 같은 PR에 커밋이 다시 올라오면 리포트가 하나 더 생긴다 (설계 문서 3.1).
+// PR마다 가장 최근 리포트만 "현재"로 보고, 나머지는 superseded(이전 커밋)로 표시한다.
+function markSuperseded(reports) {
+  const latest = new Map();
+  for (const r of reports) {
+    const key = `${r.repo}#${r.pr}`;
+    const cur = latest.get(key);
+    if (!cur || new Date(r.createdAt) > new Date(cur.createdAt)) latest.set(key, r);
+  }
+  for (const r of reports) r.superseded = latest.get(`${r.repo}#${r.pr}`) !== r;
+  return reports;
 }
 
 // 리포트의 불일치 집계
@@ -291,9 +310,9 @@ function showModeBadge() {
 // ===== 1. 분석 이력 화면 =====
 const FILTERS = [
   { key: "all", label: "전체", test: () => true },
-  { key: "pending", label: "결정 대기", test: (r) => r.status === "done" && issueStats(r).pending > 0 },
-  { key: "analyzing", label: "분석 중", test: (r) => r.status === "analyzing" },
-  { key: "failed", label: "실패", test: (r) => r.status === "failed" },
+  { key: "pending", label: "결정 대기", test: (r) => !r.superseded && r.status === "done" && issueStats(r).pending > 0 },
+  { key: "analyzing", label: "분석 중", test: (r) => !r.superseded && r.status === "analyzing" },
+  { key: "failed", label: "실패", test: (r) => !r.superseded && r.status === "failed" },
 ];
 let allReports = [];
 let currentFilter = "all";
@@ -318,6 +337,7 @@ async function renderList() {
     return;
   }
   allReports.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  markSuperseded(allReports);
   renderSummary();
   renderFilters();
   renderRows();
@@ -355,11 +375,13 @@ function clock(d) {
 }
 
 function renderSummary() {
-  const pendingIssues = allReports
+  // 요약 숫자는 PR마다 최신 리포트만 센다 (이전 커밋 리포트는 이력)
+  const current = allReports.filter((r) => !r.superseded);
+  const pendingIssues = current
     .filter((r) => r.status === "done")
     .reduce((n, r) => n + issueStats(r).pending, 0);
-  const analyzing = allReports.filter((r) => r.status === "analyzing").length;
-  const failed = allReports.filter((r) => r.status === "failed").length;
+  const analyzing = current.filter((r) => r.status === "analyzing").length;
+  const failed = current.filter((r) => r.status === "failed").length;
   document.getElementById("summary").innerHTML = `
     <div class="stat ${pendingIssues ? "attention" : ""}">
       <span class="label">결정 대기 불일치</span>
@@ -367,7 +389,7 @@ function renderSummary() {
     </div>
     <div class="stat"><span class="label">분석 중</span><span class="value">${analyzing}<small>PR</small></span></div>
     <div class="stat"><span class="label">분석 실패</span><span class="value">${failed}<small>PR</small></span></div>
-    <div class="stat"><span class="label">분석한 PR</span><span class="value">${allReports.length}<small>개</small></span></div>`;
+    <div class="stat"><span class="label">분석한 PR</span><span class="value">${current.length}<small>개</small></span></div>`;
 }
 
 function renderFilters() {
@@ -402,6 +424,8 @@ function renderRows() {
       if (r.status === "failed") attention = "crit";
     } else if (s.total === 0) {
       issuesCell = `<span class="muted">없음 · 설계와 일치</span>`;
+    } else if (s.pending > 0 && r.superseded) {
+      issuesCell = `<span class="muted">${s.total}건 (최신 커밋에서 확인)</span>`;
     } else if (s.pending > 0) {
       issuesCell = `<span class="pending-chip">결정 대기 ${s.pending}</span><span class="muted">/ 전체 ${s.total}건</span>`;
       attention = "crit";
@@ -409,11 +433,12 @@ function renderRows() {
       issuesCell = `<span class="muted">${s.total}건 모두 결정</span>`;
     }
     if (r.status === "analyzing") attention = "warn";
+    if (r.superseded) attention = "";   // 이전 커밋 리포트는 강조하지 않는다
     return `
-      <a class="report-row" href="report.html?id=${encodeURIComponent(r.id)}" data-attention="${attention}">
+      <a class="report-row" href="report.html?id=${encodeURIComponent(r.id)}" data-attention="${attention}" data-superseded="${!!r.superseded}">
         <span class="stripe" aria-hidden="true"></span>
         <span class="pr-no">#${esc(r.pr)}</span>
-        <span class="row-title"><strong>${esc(r.title)}</strong><span>${esc(r.repo)} · ${esc(r.headSha)}</span></span>
+        <span class="row-title"><strong>${esc(r.title)}</strong><span>${esc(r.repo)} · ${esc(r.headSha)}${r.superseded ? ` <span class="old-chip" title="이 PR에 더 최근 커밋의 분석이 있습니다">이전 커밋</span>` : ""}</span></span>
         <span class="status-cell">${statusBadge(r.status)}</span>
         <span class="issues-cell">${issuesCell}</span>
         <span class="time-cell">${formatDate(r.createdAt)}</span>

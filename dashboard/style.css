@@ -190,6 +190,13 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .stripe { align-self: stretch; }
 .report-row[data-attention="crit"] .stripe { background: var(--crit); }
 .report-row[data-attention="warn"] .stripe { background: var(--warn); }
+/* 같은 PR의 이전 커밋 리포트: 흐리게 (최신 리포트만 결정 대기로 센다) */
+.report-row[data-superseded="true"] { opacity: .6; }
+.report-row[data-superseded="true"]:hover { opacity: 1; }
+.old-chip {
+  display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px;
+  font-size: var(--fs-xs); color: var(--ink-2); background: var(--neutral-bg); border: 1px solid var(--line);
+}
 .pr-no { font-family: var(--font-mono); font-weight: 500; font-size: var(--fs-md); }
 .row-title { display: grid; min-width: 0; }
 .row-title strong { font-weight: 600; overflow-wrap: anywhere; }
