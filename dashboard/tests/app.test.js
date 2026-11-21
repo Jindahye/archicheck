@@ -40,7 +40,7 @@ function memoryStorage(initial = {}) {
  * url: 화면 주소 (file:// 이면 샘플 모드, http:// 이면 API 모드)
  * fetch: 가짜 fetch (요청 기록은 env.requests에 남는다)
  */
-function loadApp({ url = "http://localhost:8000/dashboard/index.html", fetch, session } = {}) {
+function loadApp({ url = "http://localhost:8000/dashboard/index.html", fetch, session, page = "test", elements = {} } = {}) {
   const u = new URL(url);
   const env = { requests: [], replaced: [] };
   const location = {
@@ -52,8 +52,8 @@ function loadApp({ url = "http://localhost:8000/dashboard/index.html", fetch, se
   };
   const document = {
     documentElement: { dataset: {} },
-    body: { dataset: { page: "test" } },      // 화면을 그리지 않게 "test"로 둔다
-    getElementById: () => null,
+    body: { dataset: { page } },              // 기본은 화면을 그리지 않게 "test"
+    getElementById: (id) => elements[id] || null,
     querySelector: () => null,
     querySelectorAll: () => [],
   };
@@ -468,5 +468,86 @@ test.describe("조치 완료와 취소", () => {
     assert.equal(reopened.status, "done");
     assert.equal(reopened.issues[0].resolved, false);
     assert.equal(reopened.issues[0].fix.after, report.issues[0].fix.after);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 로그인 화면 (비밀번호 보기 눈 아이콘, Caps Lock 안내, 예시 화면)
+// ---------------------------------------------------------------------------
+/** addEventListener로 붙은 함수를 기억했다가 테스트에서 직접 부를 수 있는 가짜 요소 */
+function fakeElement(props = {}) {
+  const listeners = {};
+  const attrs = {};
+  return {
+    ...props,
+    listeners,
+    attrs,
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+    setAttribute: (k, v) => { attrs[k] = String(v); },
+    removeAttribute: (k) => { delete attrs[k]; },
+    focus: () => {},
+  };
+}
+
+function loginScreen() {
+  const elements = {
+    "login-form": fakeElement(),
+    password: fakeElement({ type: "password", value: "" }),
+    "pw-error": fakeElement({ textContent: "" }),
+    "toggle-pw": fakeElement({ title: "비밀번호 보기" }),
+    "login-btn": fakeElement({ textContent: "접속하기", disabled: false }),
+    "login-note": fakeElement({ textContent: "" }),
+    "caps-note": fakeElement({ hidden: true }),
+  };
+  loadApp({ url: "http://localhost:8000/dashboard/login.html", page: "login", elements });
+  return elements;
+}
+
+test.describe("로그인 화면", () => {
+  test.it("눈 아이콘을 누르면 비밀번호가 보이고, 다시 누르면 가려진다", () => {
+    const el = loginScreen();
+    const toggle = el["toggle-pw"];
+    toggle.listeners.click();
+    assert.equal(el.password.type, "text");
+    assert.equal(toggle.attrs["aria-pressed"], "true");
+    assert.equal(toggle.attrs["aria-label"], "비밀번호 숨기기");
+    toggle.listeners.click();
+    assert.equal(el.password.type, "password");
+    assert.equal(toggle.attrs["aria-pressed"], "false");
+    assert.equal(toggle.attrs["aria-label"], "비밀번호 보기");
+  });
+
+  test.it("눈 아이콘을 눌러도 입력 칸의 포커스를 빼앗지 않는다", () => {
+    const el = loginScreen();
+    let prevented = false;
+    el["toggle-pw"].listeners.mousedown({ preventDefault: () => { prevented = true; } });
+    assert.equal(prevented, true);
+  });
+
+  test.it("Caps Lock이 켜져 있으면 안내를 보이고, 꺼지거나 칸을 벗어나면 숨긴다", () => {
+    const el = loginScreen();
+    const key = (on) => ({ getModifierState: (k) => k === "CapsLock" && on });
+    el.password.listeners.keyup(key(true));
+    assert.equal(el["caps-note"].hidden, false);
+    el.password.listeners.keyup(key(false));
+    assert.equal(el["caps-note"].hidden, true);
+    el.password.listeners.keydown(key(true));
+    el.password.listeners.blur();
+    assert.equal(el["caps-note"].hidden, true);
+  });
+
+  test.it("login.html에 로그인 처리에 필요한 요소가 모두 있다", () => {
+    const html = fs.readFileSync(path.join(DASHBOARD, "login.html"), "utf8");
+    for (const id of ["login-form", "password", "pw-error", "toggle-pw", "login-btn", "login-note", "caps-note", "theme-btn"]) {
+      assert.match(html, new RegExp(`id="${id}"`), `${id} 없음`);
+    }
+  });
+
+  test.it("로그인 전 예시 화면은 서버를 부르지 않고 가상 저장소 데이터만 쓴다", () => {
+    const demo = fs.readFileSync(path.join(DASHBOARD, "login-demo.js"), "utf8");
+    assert.doesNotMatch(demo, /\bfetch\s*\(|\bapi\.|XMLHttpRequest/);
+    assert.match(demo, /example\/shop-api/);
+    const html = fs.readFileSync(path.join(DASHBOARD, "login.html"), "utf8");
+    assert.match(html, /class="demo-window" inert aria-hidden="true"/);   // 예시 화면은 누를 수 없음
   });
 });

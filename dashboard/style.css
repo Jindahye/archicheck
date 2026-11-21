@@ -190,13 +190,6 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .stripe { align-self: stretch; }
 .report-row[data-attention="crit"] .stripe { background: var(--crit); }
 .report-row[data-attention="warn"] .stripe { background: var(--warn); }
-/* 같은 PR의 이전 커밋 리포트: 흐리게 (최신 리포트만 결정 대기로 센다) */
-.report-row[data-superseded="true"] { opacity: .6; }
-.report-row[data-superseded="true"]:hover { opacity: 1; }
-.old-chip {
-  display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px;
-  font-size: var(--fs-xs); color: var(--ink-2); background: var(--neutral-bg); border: 1px solid var(--line);
-}
 .pr-no { font-family: var(--font-mono); font-weight: 500; font-size: var(--fs-md); }
 .row-title { display: grid; min-width: 0; }
 .row-title strong { font-weight: 600; overflow-wrap: anywhere; }
@@ -219,18 +212,15 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .meta dt { color: var(--ink-3); }
 .meta dd { margin: 0; }
 
-/* 조치 완료 진행도 */
+/* 진행도 (결정한 불일치 / 전체) */
 .progress { display: grid; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line-soft); }
 .progress-text { font-size: var(--fs-sm); color: var(--ink-2); }
 .progress-text b { color: var(--ink); font-variant-numeric: tabular-nums; }
 .segbar { display: flex; gap: 2px; height: 8px; }
 .segbar span { border-radius: 999px; min-width: 0; }
-.seg-resolved { background: var(--primary); }
-.seg-open { background: var(--line); }
 .seg-code { background: var(--ink-2); }
 .seg-doc { background: var(--accent); }
 .seg-pending { background: var(--crit); opacity: .35; }
-.seg-dismiss { background: var(--neutral); }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: var(--fs-xs); color: var(--ink-2); }
 .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
 
@@ -247,7 +237,6 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 
 /* 상세 본문: 왼쪽 불일치 / 오른쪽 맥락 */
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 20px; align-items: start; }
-.detail-grid > .section-title { grid-column: 1 / -1; margin-bottom: -4px; }   /* 제목 아래 간격을 왼쪽 카드 사이 간격(16px)에 맞춤 */
 .col { display: grid; gap: 16px; min-width: 0; }
 .section-title { margin: 0; font-size: var(--fs-lg); font-weight: 700; display: flex; align-items: center; gap: 8px; }
 
@@ -286,13 +275,7 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .btn:hover { border-color: var(--ink-3); background: var(--line-soft); }
 .btn[aria-pressed="true"].code { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .btn[aria-pressed="true"].doc { background: var(--accent-strong); color: #fff; border-color: var(--accent-strong); }
-/* 불일치 아님 (dismiss): 조치하지 않는 선택이라 회색으로 */
-.btn.dismiss { color: var(--ink-2); }
-.btn[aria-pressed="true"].dismiss { background: var(--neutral); color: var(--surface); border-color: var(--neutral); }
-.issue[data-direction="dismiss"] .issue-head { opacity: .6; }
-.dismiss-note { font-size: var(--fs-sm); color: var(--ink-2); padding: 10px 12px; border: 1px dashed var(--line); border-radius: var(--radius); background: var(--paper); }
 .btn:disabled { opacity: .55; cursor: progress; }
-.issue-resolution { padding-top: 12px; border-top: 1px solid var(--line-soft); }
 .choice { font-size: var(--fs-sm); color: var(--ink-3); }
 .choice.error { color: var(--crit); }
 
@@ -304,28 +287,6 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   font-size: var(--fs-sm); color: var(--ink-2); background: var(--paper);
 }
 .fix-loading .ico { width: 18px; height: 18px; flex: none; color: var(--accent); animation: spin 1.2s linear infinite; }
-/* 재분석: 수정안이 마음에 들지 않을 때 요청 문구를 적어 다시 만든다 (설계 문서 3.4) */
-.regen { font-size: var(--fs-sm); color: var(--ink-2); }
-.regen[hidden] { display: none; }
-.regen summary { cursor: pointer; width: fit-content; }
-.regen summary:hover { color: var(--ink); }
-.regen[open] { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--paper); }
-.regen-label { font-size: var(--fs-xs); color: var(--ink-3); }
-.regen-input {
-  font: inherit; font-size: var(--fs-sm); color: var(--ink); background: var(--surface);
-  border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; resize: vertical; min-height: 2.6em; width: 100%; box-sizing: border-box;
-}
-.regen-input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
-.regen-btn { justify-self: start; }
-/* 이전 수정안: 접어 두고 펼쳐 본다 (3.3 fixHistory) */
-.history { font-size: var(--fs-sm); color: var(--ink-2); }
-.history > summary { cursor: pointer; width: fit-content; }
-.history > summary:hover { color: var(--ink); }
-.history[open] { display: grid; gap: 6px; }
-.history-item { border: 1px solid var(--line-soft); border-radius: var(--radius); background: var(--paper); }
-.history-item > summary { cursor: pointer; padding: 8px 12px; color: var(--ink-2); }
-.history-item[open] > summary { border-bottom: 1px solid var(--line-soft); }
-.history-body { padding: 10px; opacity: .92; }
 .fix-placeholder {
   border: 1px dashed var(--ink-3); border-radius: 6px; padding: 12px 14px;
   font-size: var(--fs-sm); color: var(--ink-2); background: var(--paper);
@@ -356,13 +317,9 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
 .impact .why { font-size: var(--fs-sm); color: var(--ink-2); }
 
 /* ---------- 로그인 ---------- */
-.login-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
-.login-card { width: 100%; max-width: 380px; padding: 28px 28px 24px; display: grid; gap: 20px; }
-.login-head { display: grid; gap: 4px; }
-.login-head h1 { margin: 0; font-size: var(--fs-xl); font-weight: 700; }
-.login-head p { margin: 0; font-size: var(--fs-sm); }
+.login-card { width: 100%; max-width: 280px; padding: 20px 20px 16px; display: grid; gap: 16px; }
+.login-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }   /* 로고 + 테마 버튼 */
 .field { display: grid; gap: 6px; }
-.field-row { display: flex; justify-content: space-between; align-items: baseline; }
 .field label { font-size: var(--fs-sm); font-weight: 600; }
 .field input {
   font: inherit; font-family: var(--font-mono); font-size: var(--fs-md);
@@ -370,9 +327,24 @@ a:hover { text-decoration: underline; text-underline-offset: 2px; }
   background: var(--paper); color: var(--ink); width: 100%;
 }
 .field input:focus { outline: 2px solid var(--accent); outline-offset: 0; border-color: var(--accent); }
-.field input[aria-invalid="true"] { border-color: var(--crit); }
-.field-error { margin: 0; min-height: 1.2em; font-size: var(--fs-sm); color: var(--crit); }
-.link-btn { font: inherit; font-size: var(--fs-xs); color: var(--accent); background: none; border: none; padding: 0; cursor: pointer; }
+.field input[aria-invalid="true"], .field input[aria-invalid="true"]:focus { border-color: var(--crit); outline-color: var(--crit); }   /* 틀리면 포커스 중에도 빨간 테두리 */
+.field-error { margin: 0; font-size: var(--fs-sm); color: var(--crit); }
+.field-error:empty { display: none; }
+.caps-note { margin: 0; font-size: var(--fs-xs); color: var(--warn); }
+/* 비밀번호 칸 오른쪽 눈 아이콘: 가려져 있으면 감은 눈, 보이면 뜬 눈 */
+.pw-box { position: relative; }
+.pw-box input { padding-right: 44px; }
+.pw-eye {
+  position: absolute; top: 50%; right: 4px; transform: translateY(-50%);
+  width: 36px; height: 36px; display: grid; place-items: center;
+  border: none; border-radius: 6px; background: none; color: var(--ink-2); cursor: pointer;
+}
+.pw-eye:hover { color: var(--ink); background: var(--accent-soft); }
+.pw-eye:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.pw-eye svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.pw-eye .eye-open, .pw-eye[aria-pressed="true"] .eye-shut { display: none; }
+.pw-eye[aria-pressed="true"] .eye-open { display: block; }
+.pw-eye[aria-pressed="true"] { color: var(--accent); }
 .btn.primary { justify-content: center; background: var(--primary); color: #fff; border-color: var(--primary); padding: 10px 14px; font-size: var(--fs-md); }
 .btn.primary:hover { background: var(--primary-hover); }
 .login-note { margin: -8px 0 0; font-size: var(--fs-xs); color: var(--warn); text-align: center; }
