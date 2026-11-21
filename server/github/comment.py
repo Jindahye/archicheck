@@ -54,10 +54,17 @@ def format_report_comment(report: dict, base_url: str) -> str:
     return "\n".join(lines)
 
 
-def format_failure_comment(report_id: str = "") -> str:
-    """실패 안내. 오류 내용은 공개 PR에 쓰지 않고 서버 로그에만 남긴다."""
+# 실패 종류(리포트 error, DESIGN.md 3.3)별 안내. 예외 원문은 공개 PR에 쓰지 않는다.
+FAILURE_GUIDE = {
+    "no_design_doc": "설계 문서를 찾지 못했습니다. 레포 루트에 `.archicheck.yml`을 두고 `design_docs:`에 "
+                     "설계 문서 경로를 적어 주세요 (경로가 실제 파일과 맞는지도 확인하세요). 커밋을 다시 올리면 새로 분석합니다.",
+    "github_error": "GitHub에서 PR 정보나 파일을 가져오지 못했습니다. 잠시 뒤 커밋을 다시 올리면 새로 분석합니다.",
+    "ai_error": "AI 분석 중 오류가 났습니다 (응답 지연, 사용량 초과 등). 잠시 뒤 커밋을 다시 올리면 새로 분석합니다.",
+}
+
+
+def format_failure_comment(report_id: str = "", error: str | None = None) -> str:
+    """실패 안내. 실패 종류별 정해진 문구만 쓰고, 오류 원문은 서버 로그에만 남긴다."""
     ref = f" (리포트 `{report_id}`)" if report_id else ""
-    return (
-        "🤖 **변경 분석 실패**\n\n"
-        f"분석 중 오류가 발생했습니다{ref}. 자세한 원인은 서버 로그에서 확인할 수 있습니다."
-    )
+    guide = FAILURE_GUIDE.get(error or "", "분석 중 오류가 발생했습니다. 자세한 원인은 서버 로그에서 확인할 수 있습니다.")
+    return f"🤖 **변경 분석 실패**{ref}\n\n{guide}"

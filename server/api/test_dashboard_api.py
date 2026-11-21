@@ -296,6 +296,7 @@ def test_fix_keeps_other_report_fields_unchanged(fix_client, store, sample):
     expected = two_issue_report(sample)
     expected["issues"][0]["direction"] = "code"
     expected["issues"][0]["fix"] = CODE_FIX
+    expected["issues"][0]["resolved"] = False  # 새 수정안은 아직 확인 전 (3.3 issues[].resolved)
     assert saved == expected  # 다른 issue와 다른 필드, 상태(done)가 그대로다
 
 
@@ -395,6 +396,80 @@ def test_fix_history_not_added_on_first_fix_or_failure(fix_client, store, sample
     generator.error = LLMCallError("gemini down")
     fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})
     assert "fixHistory" not in store.get(sample["id"])["issues"][0]
+
+
+# --- 불일치 아님 (dismiss) ---
+
+
+def resolution_url(report_id="rpt_12_a1b2c3", issue_id="iss_1"):
+    return f"/api/reports/{report_id}/issues/{issue_id}/resolution"
+
+
+def test_fix_dismiss_records_direction_without_ai(fix_client, store, sample, github, generator):
+    store.save(sample)
+    r = fix_client.post(fix_url(), json={"direction": "dismiss"})
+    assert r.status_code == 200 and r.json() == {"direction": "dismiss", "fix": None, "status": "resolved"}
+    assert github.calls == [] and generator.calls == []
+    issue = store.get(sample["id"])["issues"][0]
+    assert issue["direction"] == "dismiss" and issue["fix"] is None and issue["resolved"] is True
+
+
+def test_fix_dismiss_keeps_previous_fix_in_history(fix_client, store, sample):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    fix_client.post(fix_url(), json={"direction": "dismiss"})
+    issue = store.get(sample["id"])["issues"][0]
+    assert issue["fix"] is None and issue["fixHistory"][0]["fix"] == CODE_FIX
+
+
+def test_fix_dismiss_then_choose_code_generates_unresolved(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "dismiss"})
+    r = fix_client.post(fix_url(), json={"direction": "code"})
+    assert r.json() == {"direction": "code", "fix": CODE_FIX, "status": "done"}
+    assert [c[0] for c in generator.calls] == ["code"]
+    assert store.get(sample["id"])["issues"][0]["resolved"] is False
+
+
+def test_fix_dismiss_counts_toward_resolved(fix_client, store, sample):
+    store.save(two_issue_report(sample))
+    fix_client.post(fix_url(), json={"direction": "code"})
+    fix_client.put(resolution_url(), json={"resolved": True, "reviewed": {"direction": "code", "fix": CODE_FIX}})
+    assert store.get(sample["id"])["status"] == "done"
+    fix_client.post(fix_url(issue_id="iss_2"), json={"direction": "dismiss"})
+    assert store.get(sample["id"])["status"] == "resolved"
+
+
+def test_fix_dismiss_needs_no_design_ref(fix_client, store, sample):
+    report = {**sample, "issues": [{**sample["issues"][0], "designRef": "", "codeRef": ""}]}
+    store.save(report)
+    assert fix_client.post(fix_url(), json={"direction": "dismiss"}).status_code == 200
+
+
+def test_dismissed_issue_can_be_cancelled_and_resolved_again(fix_client, store, sample):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "dismiss"})
+    r = fix_client.put(resolution_url(), json={"resolved": False})
+    assert r.json() == {"status": "done", "resolutions": {"iss_1": False}}
+    r = fix_client.put(resolution_url(), json={"resolved": True, "reviewed": {"direction": "dismiss", "fix": None}})
+    assert r.json()["status"] == "resolved"
+
+
+def test_new_fix_resets_resolved_issue(fix_client, store, sample, generator):
+    """확인하고 완료한 항목도 수정안을 새로 만들면(재분석·방향 전환) 다시 미완료가 된다."""
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    fix_client.put(resolution_url(), json={"resolved": True, "reviewed": {"direction": "code", "fix": CODE_FIX}})
+    assert store.get(sample["id"])["status"] == "resolved"
+
+    generator.code_result = {"diff": "새 결과"}
+    r = fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})
+    assert r.json()["status"] == "done"
+    assert store.get(sample["id"])["issues"][0]["resolved"] is False
+
+    fix_client.put(resolution_url(), json={"resolved": True, "reviewed": {"direction": "code", "fix": {"diff": "새 결과"}}})
+    r = fix_client.post(fix_url(), json={"direction": "doc"})
+    assert r.json()["status"] == "done" and store.get(sample["id"])["issues"][0]["resolved"] is False
 
 
 def test_fix_generation_does_not_resolve_report(fix_client, store, sample):

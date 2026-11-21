@@ -203,6 +203,67 @@ def test_analysis_failure_marks_failed_and_comments():
     assert "claude down" not in client.comments[0]  # 오류 내용은 공개 PR에 쓰지 않는다
 
 
+# ---------- 실패 종류 (리포트 error, DESIGN.md 3.3) ----------
+class AnalysisError(Exception):  # ConformanceAnalyzer의 예외와 같은 이름 (Gemini 호출 실패)
+    pass
+
+
+class AIFailAnalyzer:
+    def analyze(self, *a): raise AnalysisError("Gemini API 호출 실패: 503 secret-detail")
+
+
+class CountingAnalyzer(OkAnalyzer):
+    def __init__(self): self.calls = 0
+    def analyze(self, *a):
+        self.calls += 1
+        return super().analyze(*a)
+
+
+class EmptyLocator:
+    def locate(self, repo, ref): return []
+
+
+class DiffFailsClient(FakeClient):
+    def get_diff(self, pr): raise GitHubAPIError("GET -> 502", 502)
+
+
+def test_no_design_doc_fails_without_calling_ai():
+    analyzer = CountingAnalyzer()
+    tc, client, store = build(analyzer)
+    wh._handler.locator = EmptyLocator()
+    post(tc, pr_payload())
+    assert store.saved[-1]["status"] == "failed" and store.saved[-1]["error"] == "no_design_doc"
+    assert analyzer.calls == 0
+    assert ".archicheck.yml" in client.comments[0]
+
+
+def test_ai_failure_is_ai_error_without_raw_message():
+    tc, client, store = build(AIFailAnalyzer())
+    post(tc, pr_payload())
+    assert store.saved[-1]["error"] == "ai_error"
+    assert "AI 분석 중 오류" in client.comments[0] and "secret-detail" not in client.comments[0]
+
+
+def test_github_failure_is_github_error():
+    tc, _, store = build(OkAnalyzer())
+    wh._handler.client = DiffFailsClient()
+    post(tc, pr_payload())
+    assert store.saved[-1]["error"] == "github_error"
+
+
+def test_unexpected_failure_is_internal():
+    tc, client, store = build(BrokenAnalyzer())
+    post(tc, pr_payload())
+    assert store.saved[-1]["error"] == "internal"
+    assert "서버 로그" in client.comments[0]
+
+
+def test_done_report_has_no_error_field():
+    tc, _, store = build(OkAnalyzer())
+    post(tc, pr_payload())
+    assert "error" not in store.saved[-1]
+
+
 # ---------- 수정 사항 검증 ----------
 class CommentFailsClient(FakeClient):
     def post_comment(self, pr, body):

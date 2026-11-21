@@ -251,7 +251,7 @@ const STATUS = {
   resolved:  { label: "조치 완료", icon: "check" },
   failed:    { label: "실패", icon: "alert" },
 };
-const DIRECTION_LABEL = { code: "코드 수정", doc: "문서 개정" };
+const DIRECTION_LABEL = { code: "코드 수정", doc: "문서 개정", dismiss: "불일치 아님" };   // dismiss: AI 오탐으로 판단 (3.3)
 
 const ICONS = {
   spinner: `<path d="M8 2a6 6 0 1 0 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>`,
@@ -318,8 +318,9 @@ function issueStats(r) {
   const pending = issues.filter((i) => !i.direction).length;
   const code = issues.filter((i) => i.direction === "code").length;
   const doc = issues.filter((i) => i.direction === "doc").length;
+  const dismiss = issues.filter((i) => i.direction === "dismiss").length;
   const resolved = issues.filter((i) => issueResolved(r, i)).length;
-  return { total, pending, code, doc, resolved };
+  return { total, pending, code, doc, dismiss, resolved };
 }
 
 // ===== 테마 전환 =====
@@ -559,14 +560,29 @@ function progressBlock(r) {
     </div>`;
 }
 
+// 분석 실패 종류(리포트 error, 설계 문서 3.3)별 안내. PR 코멘트(server/github/comment.py)와 같은 뜻으로 쓴다.
+const FAILURE_TITLE = {
+  no_design_doc: "설계 문서를 찾지 못했습니다",
+  github_error: "GitHub에서 PR 정보를 가져오지 못했습니다",
+  ai_error: "AI 분석 중 오류가 났습니다",
+  internal: "서버 오류로 분석하지 못했습니다",
+};
+const FAILURE_GUIDE = {
+  no_design_doc: "레포 루트에 <code>.archicheck.yml</code>을 두고 <code>design_docs:</code>에 설계 문서 경로를 적어 주세요. 경로가 실제 파일과 맞는지도 확인하세요. 커밋을 다시 올리면 새로 분석합니다.",
+  github_error: "GitHub 응답이 실패했습니다. 잠시 뒤 PR에 커밋을 다시 올리면 새로 분석합니다.",
+  ai_error: "Gemini 응답 지연이나 사용량 초과 등으로 분석하지 못했습니다. 잠시 뒤 PR에 커밋을 다시 올리면 새로 분석합니다.",
+  internal: "서버 담당자에게 리포트 ID를 알려 주세요. 원인은 서버 로그에 남아 있습니다.",
+  unknown: "설계 문서를 찾지 못했거나 AI 분석 중 오류가 났습니다. PR에 커밋을 다시 올리면 새로 분석합니다. 설계 문서를 못 찾은 경우에는 레포 루트의 <code>.archicheck.yml</code>에 설계 문서 경로를 적어 주세요.",
+};
+
 function statusNotice(r) {
   if (r.status === "analyzing") {
     return `<div class="notice analyzing">${icon("spinner")}<div><strong>분석 중입니다</strong>
       <p>설계 문서와 코드 변경을 비교하고 있습니다. 보통 1분 안에 끝나며, 끝나면 이 화면이 자동으로 바뀝니다.</p></div></div>`;
   }
   if (r.status === "failed") {
-    return `<div class="notice failed">${icon("alert")}<div><strong>분석하지 못했습니다</strong>
-      <p>설계 문서를 찾지 못했거나 AI 분석 중 오류(응답 지연, 사용량 초과 등)가 났습니다. PR에 커밋을 다시 올리면 새로 분석합니다. 설계 문서를 못 찾은 경우에는 레포 루트의 <code>.archicheck.yml</code>에 설계 문서 경로를 적어 주세요.</p></div></div>`;
+    return `<div class="notice failed">${icon("alert")}<div><strong>${FAILURE_TITLE[r.error] || "분석하지 못했습니다"}</strong>
+      <p>${FAILURE_GUIDE[r.error] || FAILURE_GUIDE.unknown}</p></div></div>`;
   }
   if (!r.issues || r.issues.length === 0) {
     return `<div class="notice ok">${icon("check")}<div><strong>설계와 일치합니다</strong>
@@ -603,6 +619,7 @@ function issueCard(r, iss, i) {
       <div class="actions">
         <button type="button" class="btn code" data-dir="code" aria-pressed="${dir === "code"}">코드 수정안 받기</button>
         <button type="button" class="btn doc" data-dir="doc" aria-pressed="${dir === "doc"}">문서 개정안 받기</button>
+        <button type="button" class="btn dismiss" data-dir="dismiss" aria-pressed="${dir === "dismiss"}" title="AI가 잘못 찾은 항목이면 조치하지 않고 넘깁니다">불일치 아님</button>
         <span class="choice">${dir ? `${DIRECTION_LABEL[dir]}으로 정했습니다` : "코드를 고칠지, 설계 문서를 고칠지 골라 주세요"}</span>
       </div>
       <div class="fix-panel"></div>
@@ -686,7 +703,7 @@ function bindIssueButtons(r) {
 
     function syncCard(updateNote = false) {
       const resolved = issueResolved(r, iss);
-      const ready = iss.direction && (USE_SAMPLE || iss.fix);
+      const ready = iss.direction && (USE_SAMPLE || iss.fix || iss.direction === "dismiss");
       resolutionButton.textContent = resolved ? "조치 완료 취소" : "조치 완료";
       resolutionButton.classList.toggle("primary", !resolved);
       resolutionButton.disabled = updatingResolution || generating || (!resolved && !ready);
@@ -740,15 +757,24 @@ function bindIssueButtons(r) {
       syncCard();
       choice.classList.remove("error");
       const label = `${DIRECTION_LABEL[direction]}안`;
-      choice.textContent = regenerate ? `${label}을 재분석하는 중입니다…` : `${label}을 만드는 중입니다…`;
-      // 예전 수정안 대신 진행 표시를 보여 준다 (AI 응답에 10~30초 걸릴 수 있음)
-      panel.innerHTML = `<div class="fix-loading" role="status">${icon("spinner")}<span>AI가 ${label}을 ${regenerate ? "다시 " : ""}만드는 중입니다. 10~30초 정도 걸릴 수 있습니다.</span></div>`;
+      if (direction === "dismiss") {
+        choice.textContent = "처리하는 중입니다…";   // AI를 부르지 않아 금방 끝난다
+      } else {
+        choice.textContent = regenerate ? `${label}을 재분석하는 중입니다…` : `${label}을 만드는 중입니다…`;
+        // 예전 수정안 대신 진행 표시를 보여 준다 (AI 응답에 10~30초 걸릴 수 있음)
+        panel.innerHTML = `<div class="fix-loading" role="status">${icon("spinner")}<span>AI가 ${label}을 ${regenerate ? "다시 " : ""}만드는 중입니다. 10~30초 정도 걸릴 수 있습니다.</span></div>`;
+      }
       try {
         const result = await api.requestFix(r.id, iss.id, direction, { regenerate, feedback: feedback ? feedback.value : "" });
         // 서버와 같은 규칙으로 덮어쓰기 전 수정안을 이력에 남긴다 (3.3 fixHistory, 최신순 최대 5개)
         iss.fixHistory = pushFixHistory(iss, new Date().toISOString());
         iss.direction = result.direction ?? direction;
         iss.fix = result.fix ?? null;
+        // 서버와 같은 규칙 (3.3 issues[].resolved): 새 수정안은 확인 전이라 미완료, dismiss는 바로 완료.
+        // 예전 resolved 리포트는 다른 항목의 완료 상태를 먼저 채워 둔다.
+        if (r.status === "resolved") r.issues.forEach((item) => { if (item.resolved === undefined) item.resolved = true; });
+        iss.resolved = iss.direction === "dismiss";
+        refreshStatus(r, result.status ?? (r.issues.every((item) => item.resolved) ? "resolved" : "done"));
         renderHistory(historyHost, iss);
         card.dataset.direction = iss.direction;
         buttons.forEach((b) => b.dataset.dir && b.setAttribute("aria-pressed", b.dataset.dir === iss.direction));
@@ -757,7 +783,7 @@ function bindIssueButtons(r) {
         if (regen) regen.hidden = !iss.fix;
         if (regenerate && feedback) { feedback.value = ""; regen.open = false; }
         refreshProgress(r);
-        showResolutionNote();
+        syncAll(true);
       } catch (e) {
         // 실패하면 서버는 아무것도 저장하지 않는다 → 이전 선택과 수정안을 다시 보여 준다
         if (iss.direction) showFix(iss, panel);
@@ -774,7 +800,7 @@ function bindIssueButtons(r) {
       btn.addEventListener("click", () => {
         const direction = btn.dataset.dir;
         // 이미 고른 방향이고 수정안도 있으면 서버가 저장된 값을 그대로 주므로 부르지 않는다
-        if (iss.direction === direction && iss.fix) return;
+        if (iss.direction === direction && (iss.fix || direction === "dismiss")) return;
         return run(direction, false);
       });
     });
@@ -831,6 +857,10 @@ function refreshProgress(r) {
 
 // 수정안 패널: ⑤가 window.renderFixPanel(issue, element)를 만들면 그걸 사용한다.
 function showFix(iss, panel) {
+  if (iss.direction === "dismiss") {
+    panel.innerHTML = `<div class="dismiss-note">불일치가 아닌 것으로 처리했습니다. 다시 보니 조치가 필요하면 [코드 수정안 받기]나 [문서 개정안 받기]를 누르세요.</div>`;
+    return;
+  }
   if (typeof window.renderFixPanel === "function") {
     window.renderFixPanel(iss, panel);
     return;

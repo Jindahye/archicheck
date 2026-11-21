@@ -78,12 +78,13 @@ class DashboardAPI:
     ) -> dict:
         """수정 방향을 정하고 수정안을 만들어 리포트에 저장한다 (3.4).
 
-        direction: "code" 또는 "doc". 반환: {"direction": ..., "fix": ..., "status": ...}
+        direction: "code", "doc", "dismiss"(불일치 아님). 반환: {"direction": ..., "fix": ..., "status": ...}
 
         - 같은 issue에 같은 direction으로 다시 요청하면 저장된 수정안을 그대로 돌려준다.
         - regenerate=True(재분석)면 저장된 값을 쓰지 않고 새로 만들어 덮어쓴다. feedback은 생성 프롬프트에 넣는다.
         - direction이 바뀌면 새로 만들어 기존 값을 덮어쓴다.
         - 수정안 생성이나 검증에 실패하면 아무것도 저장하지 않는다.
+        - dismiss는 AI를 부르지 않고 방향만 기록한다 (fix는 null, 이전 수정안은 fixHistory에 남김).
         """
         report = self.get_report(report_id)
         issue = _find_issue(report, issue_id)
@@ -92,6 +93,9 @@ class DashboardAPI:
             raise HTTPException(
                 status_code=409, detail=f"Report is {report.get('status')}; fix not available"
             )
+
+        if direction == "dismiss":
+            return self._save_choice(report_id, issue_id, "dismiss", None)
 
         if not regenerate and issue.get("direction") == direction and issue.get("fix"):
             return {"direction": direction, "fix": issue["fix"], "status": report["status"]}
@@ -126,19 +130,35 @@ class DashboardAPI:
 
         fix = _validate_fix(direction, raw)  # 형식이 틀리면 저장 전에 502
 
+        return self._save_choice(report_id, issue_id, direction, fix, regenerate)
+
+    def _save_choice(
+        self, report_id: str, issue_id: str, direction: str, fix: dict | None, regenerate: bool = False
+    ) -> dict:
+        """방향과 수정안을 저장한다 (3.3).
+
+        - 기존 수정안은 fixHistory에 남긴다.
+        - 새 수정안은 아직 사용자가 확인하지 않았으므로 resolved=false, dismiss는 바로 resolved=true.
+        - 읽기부터 저장까지 store.edit로 묶어 다른 쓰기와 겹치지 않게 한다.
+        """
         with self.store.edit(report_id) as stored:
             latest = _require_report(stored)
             if latest.get("status") not in FIXABLE_STATUSES:
                 raise HTTPException(status_code=409, detail="Report changed during fix generation")
             target = _find_issue(latest, issue_id)
-            if not regenerate and target.get("direction") == direction and target.get("fix"):
+            if direction == "dismiss" and target.get("direction") == "dismiss":
+                return {"direction": "dismiss", "fix": None, "status": latest["status"]}
+            if direction != "dismiss" and not regenerate and target.get("direction") == direction and target.get("fix"):
                 return {"direction": direction, "fix": target["fix"], "status": latest["status"]}
             if target.get("fix"):
                 # 재분석·방향 전환으로 덮어쓰기 전에 기존 수정안을 이력에 남긴다 (3.3 fixHistory, 최신순 최대 5개)
                 old = {"direction": target.get("direction"), "fix": target["fix"], "replacedAt": _now_iso()}
                 target["fixHistory"] = [old, *(target.get("fixHistory") or [])][:FIX_HISTORY_MAX]
+            _fill_legacy_resolutions(latest)
             target["direction"] = direction
             target["fix"] = fix
+            target["resolved"] = direction == "dismiss"
+            latest["status"] = _status_from_resolutions(latest)
         return {"direction": direction, "fix": fix, "status": latest["status"]}
 
     def set_issue_resolution(
@@ -154,14 +174,10 @@ class DashboardAPI:
                 if current is None or current != reviewed:
                     raise HTTPException(status_code=409, detail="Fix is missing or changed since review")
 
-            # 항목별 상태가 없던 리포트도 한 항목을 취소한 뒤 나머지 항목의 완료 상태가 유지돼야 합니다.
-            issues = report["issues"]
-            if report["status"] == "resolved":
-                for item in issues:
-                    item.setdefault("resolved", True)
+            _fill_legacy_resolutions(report)
             issue["resolved"] = resolved
-            resolutions = {item["id"]: item.get("resolved", False) for item in issues}
-            report["status"] = "resolved" if all(resolutions.values()) else "done"
+            resolutions = {item["id"]: item.get("resolved", False) for item in report["issues"]}
+            report["status"] = _status_from_resolutions(report)
         return {"status": report["status"], "resolutions": resolutions}
 
     def _get_github(self):
@@ -189,9 +205,25 @@ def _find_issue(report: dict, issue_id: str) -> dict:
 
 
 def _reviewable_fix(issue: dict) -> dict | None:
+    """조치 완료로 기록할 수 있는 현재 선택. 수정안이 있거나 dismiss(불일치 아님)여야 한다."""
     if issue.get("direction") in ("code", "doc") and issue.get("fix"):
         return {"direction": issue["direction"], "fix": issue["fix"]}
+    if issue.get("direction") == "dismiss":
+        return {"direction": "dismiss", "fix": None}
     return None
+
+
+def _fill_legacy_resolutions(report: dict) -> None:
+    """항목별 resolved가 없던 예전 resolved 리포트: 한 항목을 바꿔도 나머지는 완료로 남게 채운다."""
+    if report.get("status") == "resolved":
+        for item in report.get("issues", []):
+            item.setdefault("resolved", True)
+
+
+def _status_from_resolutions(report: dict) -> str:
+    """불일치 항목이 있고 모두 조치 완료면 resolved, 아니면 done (3.3)."""
+    issues = report.get("issues", [])
+    return "resolved" if issues and all(i.get("resolved") for i in issues) else "done"
 
 
 def _is_external_error(exc: BaseException) -> bool:
@@ -259,7 +291,7 @@ class LoginRequest(BaseModel):
 
 
 class FixRequest(BaseModel):
-    direction: Literal["code", "doc"]
+    direction: Literal["code", "doc", "dismiss"]  # dismiss: 불일치 아님 (AI 호출 없음)
     regenerate: bool = False  # 재분석: 저장된 수정안이 있어도 새로 만든다
     feedback: str | None = Field(default=None, max_length=500)  # 재분석 요청 문구 (선택)
 

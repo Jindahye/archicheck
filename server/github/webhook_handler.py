@@ -20,6 +20,21 @@ HANDLED_ACTIONS = {"opened", "reopened", "synchronize"}
 KST = timezone(timedelta(hours=9))
 
 
+class _NoDesignDoc(Exception):
+    """설계 문서를 찾지 못함 (3.5). 분석 전에 실패로 처리한다."""
+
+
+def _failure_kind(stage: str, error: Exception) -> str:
+    """실패한 단계와 예외로 리포트 error 값(3.3)을 정한다. 예외 원문은 공개 PR에 쓰지 않는다."""
+    if stage == "no_design_doc":
+        return "no_design_doc"
+    if stage == "github":
+        return "github_error"
+    if stage == "ai" and type(error).__name__ == "AnalysisError":
+        return "ai_error"  # ConformanceAnalyzer의 Gemini 호출 실패 (3.2)
+    return "internal"
+
+
 class WebhookHandler:
     def __init__(self, client=None, locator=None, analyzer=None, store=None,
                  secret: str | None = None, base_url: str | None = None):
@@ -87,12 +102,19 @@ class WebhookHandler:
 
     # ---- 백그라운드 분석 (3.1) ----
     def _run_analysis(self, pr: PullRequestRef, report: dict) -> None:
-        # 1) 분석·저장: 여기서 실패하면 리포트를 failed로 둔다.
+        # 1) 분석·저장: 여기서 실패하면 리포트를 failed로 두고 실패 종류(error, 3.3)를 남긴다.
+        stage = "github"  # 어느 단계에서 실패했는지로 실패 종류를 정한다
         try:
             diff = self.client.get_diff(pr)
             commits = self.client.get_commit_messages(pr)
             docs = self.locator.locate(pr.repo, pr.head_sha)
+            if not docs:
+                # 설계 문서가 없으면 Gemini를 부르지 않고 바로 실패로 둔다 (3.5)
+                stage = "no_design_doc"
+                raise _NoDesignDoc()
+            stage = "ai"
             result = self.analyzer.analyze(diff, docs, commits) or {}
+            stage = "internal"
 
             final = {**report, **result}
             # 식별 필드는 우리가 아는 값이 기준이다 (분석기 출력이 덮어쓰지 못하게).
@@ -100,13 +122,17 @@ class WebhookHandler:
                          title=pr.title, createdAt=report["createdAt"], status="done",
                          designDocs=[d["path"] for d in docs])
             self.store.save(final)
-        except Exception:  # noqa: BLE001 - 어떤 실패든 failed 처리가 우선
-            log.exception("분석 실패: %s#%s (%s)", pr.repo, pr.number, report["id"])
+        except Exception as e:  # noqa: BLE001 - 어떤 실패든 failed 처리가 우선
+            error = _failure_kind(stage, e)
+            if error == "no_design_doc":
+                log.warning("설계 문서를 찾지 못함: %s#%s (%s)", pr.repo, pr.number, report["id"])
+            else:
+                log.exception("분석 실패 (%s): %s#%s (%s)", error, pr.repo, pr.number, report["id"])
             try:
-                self.store.save({**report, "status": "failed"})
+                self.store.save({**report, "status": "failed", "error": error})
             except Exception:  # noqa: BLE001
                 log.exception("failed 상태 저장도 실패: %s", report["id"])
-            self._post_comment_safely(pr, format_failure_comment(report["id"]))
+            self._post_comment_safely(pr, format_failure_comment(report["id"], error))
             return
 
         # 2) 코멘트 게시: 실패해도 저장된 분석 결과(done)는 그대로 둔다.

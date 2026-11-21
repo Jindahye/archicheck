@@ -22,7 +22,7 @@ const EXPORTS = [
   "USE_SAMPLE", "api", "auth", "ApiError", "getJson", "reportErrorMessage", "fixErrorMessage",
   "requireLogin", "safeNextPage", "esc", "statusBadge", "formatDate", "githubLink", "githubAnchor", "markSuperseded", "issueStats",
   "bindIssueButtons",
-  "pushFixHistory",
+  "refreshStatus", "pushFixHistory", "statusNotice",
 ];
 
 function memoryStorage(initial = {}) {
@@ -112,20 +112,21 @@ test.describe("샘플/API 모드 자동 전환", () => {
 test.describe("화면 표시 도우미", () => {
   const { app } = loadApp();
 
-  test.it("issueStats: 불일치 전체·결정 대기·코드 수정·문서 개정 개수를 센다", () => {
+  test.it("issueStats: 불일치 전체·결정 대기·코드 수정·문서 개정·불일치 아님 개수를 센다", () => {
     const report = {
       issues: [
         { id: "iss_1", direction: null },
         { id: "iss_2", direction: "code" },
         { id: "iss_3", direction: "doc" },
         { id: "iss_4", direction: "doc" },
+        { id: "iss_5", direction: "dismiss" },
       ],
     };
-    assert.deepEqual({ ...app.issueStats(report) }, { total: 4, pending: 1, code: 1, doc: 2, resolved: 0 });
+    assert.deepEqual({ ...app.issueStats(report) }, { total: 5, pending: 1, code: 1, doc: 2, dismiss: 1, resolved: 0 });
   });
 
   test.it("issueStats: issues가 없으면 모두 0 (3.3 형식에 없는 필드는 쓰지 않는다)", () => {
-    assert.deepEqual({ ...app.issueStats({ issueCount: 9 }) }, { total: 0, pending: 0, code: 0, doc: 0, resolved: 0 });
+    assert.deepEqual({ ...app.issueStats({ issueCount: 9 }) }, { total: 0, pending: 0, code: 0, doc: 0, dismiss: 0, resolved: 0 });
   });
 
   test.it("statusBadge: 3.3의 status 4가지를 한국어로 보여 준다", () => {
@@ -189,6 +190,12 @@ test.describe("화면 표시 도우미", () => {
 
   test.it("pushFixHistory: 아직 수정안이 없으면 이력을 바꾸지 않는다", () => {
     assert.deepEqual([...app.pushFixHistory({ direction: null, fix: null }, "t")], []);
+  });
+
+  test.it("statusNotice: 분석 실패는 error 종류별 안내를 보여 주고, error가 없으면(예전 리포트) 두 가능성을 모두 안내한다", () => {
+    assert.match(app.statusNotice({ status: "failed", error: "no_design_doc" }), /설계 문서를 찾지 못했습니다[\s\S]*archicheck\.yml/);
+    assert.match(app.statusNotice({ status: "failed", error: "ai_error" }), /AI 분석 중 오류/);
+    assert.match(app.statusNotice({ status: "failed" }), /분석하지 못했습니다[\s\S]*AI 분석 중 오류/);
   });
 
   test.it("githubLink: 경로가 없으면 '-'를 보여 준다", () => {
