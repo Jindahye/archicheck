@@ -1,11 +1,10 @@
-"""PR 코멘트 본문 생성.
+"""PR 코멘트 본문 생성 (DESIGN.md 3.1, 담당 ②).
 
-⑤가 prompts/에 PR 코멘트 템플릿을 만들면 이 모듈을 그 템플릿으로 교체한다.
-그 전까지 쓰는 기본 형식이다 (DESIGN.md 3.1: 요약 + 사용한 설계 문서 + 대시보드 링크).
+형식: 사용한 설계 문서, ① 변경 설명, ② 영향 범위, ③ 설계 정합성, 대시보드 링크.
 """
 from __future__ import annotations
 
-DASHBOARD_PATH = "/dashboard/report.html?id="  # TODO: ④와 실제 리포트 상세 경로 확인
+DASHBOARD_PATH = "/dashboard/report.html?id="  # 리포트 상세 화면 (③이 /dashboard로 제공)
 
 
 def report_url(base_url: str, report_id: str) -> str | None:
