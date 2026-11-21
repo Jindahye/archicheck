@@ -2,7 +2,7 @@
 
 > 코드가 바뀌면 설계 문서·다이어그램과 어긋난 부분을 찾아, 코드 수정 또는 문서 개정안을 제안하는 AI 에이전트
 
-🚧 개발 중 (2026.11.16 ~ 11.20)
+✅ 개발 완료 (2026.11.16 ~ 11.20) · 이후 개선 과제는 [설계 문서 6장](docs/DESIGN.md#6-개선-과제)
 
 ## 왜 필요한가
 
@@ -75,13 +75,37 @@ uvicorn server.main:app --reload
 ### 테스트
 
 ```bash
-pytest                                      # 서버 단위 테스트
-node --test dashboard/tests/app.test.js     # 대시보드 단위 테스트
+pytest                                          # 서버 단위 테스트
+node --test dashboard/tests/app.test.js         # 대시보드 화면 단위 테스트
+node --test dashboard/tests/fix-panel.test.js   # 수정안 패널 단위 테스트
 ```
+
+## 대상 레포 연결 방법
+
+ArchiCheck 서버가 떠 있는 상태에서, 검사할 레포에 아래를 설정합니다.
+
+1. **GitHub 토큰:** 대상 레포에만 권한을 준 fine-grained 토큰을 만들어 서버 `.env`의 `GITHUB_TOKEN`에 넣습니다.
+   - Contents: 읽기 (설계 문서·파일 조회)
+   - Pull requests: 읽기·쓰기 (diff 조회, PR 코멘트 게시)
+2. **Webhook:** 대상 레포의 Settings → Webhooks → Add webhook
+   | 항목 | 값 |
+   | --- | --- |
+   | Payload URL | `{PUBLIC_BASE_URL}/webhook/github` |
+   | Content type | `application/json` |
+   | Secret | 서버 `.env`의 `GITHUB_WEBHOOK_SECRET`과 같은 값 |
+   | 이벤트 | Let me select individual events → **Pull requests**만 선택 |
+3. **설계 문서 지정 (선택):** 레포 루트에 `.archicheck.yml`을 두면 그 문서만 비교에 씁니다. 없으면 Mermaid 다이어그램이 있는 md 파일을 자동으로 찾습니다 ([설계 문서 3.5](docs/DESIGN.md#35-설계-문서-탐색-규칙)).
+   ```yaml
+   design_docs:
+     - docs/DESIGN.md
+   ```
+4. PR을 열거나 커밋을 올리면 분석 결과가 PR 코멘트로 달리고, 코멘트의 링크로 대시보드에서 수정 방향을 고릅니다.
+
+> 분석을 위해 코드와 설계 문서가 Gemini API로 전송됩니다. 무료 등급에서는 보낸 내용이 모델 개선에 쓰일 수 있으므로 공개해도 되는 코드만 연결하세요 ([설계 문서 5장](docs/DESIGN.md#5-보안-및-한계)).
 
 ## 협업 규칙
 
-- `main`에 직접 push하지 않고, 브랜치에서 작업한 뒤 PR로 합친다.
+- `main`에 직접 push하지 않고, 브랜치에서 작업한 뒤 PR로 합친다. 단, 팀장의 작은 수정(문서, 오타, 몇 줄짜리 버그 수정)은 `main`에 바로 올릴 수 있다.
 - 브랜치 이름은 `종류/작업내용` 형식으로 짓는다. (예: `feat/dashboard`, `fix/webhook`, `docs/design`)
 - 커밋 메시지는 `종류: 내용` 형식의 한 줄로 쓴다. (종류: `feat`, `fix`, `docs`, `refactor`)
 - 작업 전 `git pull`로 최신 코드를 받는다.
