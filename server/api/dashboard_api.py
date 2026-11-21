@@ -100,6 +100,10 @@ class DashboardAPI:
         if not regenerate and issue.get("direction") == direction and issue.get("fix"):
             return {"direction": direction, "fix": issue["fix"], "status": report["status"]}
 
+        # 방향을 바꿀 때 이력에 그 방향의 수정안이 있으면 AI를 부르지 않고 되돌린다 (3.3 fixHistory)
+        if not regenerate and issue.get("direction") != direction and _history_index(issue, direction) is not None:
+            return self._save_choice(report_id, issue_id, direction, None, restore=True)
+
         design_path = str(issue.get("designRef") or "").split("#", 1)[0].strip()
         if not design_path:
             raise HTTPException(status_code=422, detail="Issue has no designRef")
@@ -133,12 +137,19 @@ class DashboardAPI:
         return self._save_choice(report_id, issue_id, direction, fix, regenerate)
 
     def _save_choice(
-        self, report_id: str, issue_id: str, direction: str, fix: dict | None, regenerate: bool = False
+        self,
+        report_id: str,
+        issue_id: str,
+        direction: str,
+        fix: dict | None,
+        regenerate: bool = False,
+        restore: bool = False,
     ) -> dict:
         """방향과 수정안을 저장한다 (3.3).
 
         - 기존 수정안은 fixHistory에 남긴다.
         - 새 수정안은 아직 사용자가 확인하지 않았으므로 resolved=false, dismiss는 바로 resolved=true.
+        - restore=True면 fix 대신 fixHistory에서 그 방향의 가장 최근 수정안을 꺼내 쓴다.
         - 읽기부터 저장까지 store.edit로 묶어 다른 쓰기와 겹치지 않게 한다.
         """
         with self.store.edit(report_id) as stored:
@@ -150,10 +161,18 @@ class DashboardAPI:
                 return {"direction": "dismiss", "fix": None, "status": latest["status"]}
             if direction != "dismiss" and not regenerate and target.get("direction") == direction and target.get("fix"):
                 return {"direction": direction, "fix": target["fix"], "status": latest["status"]}
+            history = list(target.get("fixHistory") or [])
+            if restore:
+                index = _history_index(target, direction)
+                if index is None:  # 그 사이 이력이 바뀌었으면 되돌릴 수 없다
+                    raise HTTPException(status_code=409, detail="Fix history changed")
+                fix = history.pop(index)["fix"]
             if target.get("fix"):
                 # 재분석·방향 전환으로 덮어쓰기 전에 기존 수정안을 이력에 남긴다 (3.3 fixHistory, 최신순 최대 5개)
                 old = {"direction": target.get("direction"), "fix": target["fix"], "replacedAt": _now_iso()}
-                target["fixHistory"] = [old, *(target.get("fixHistory") or [])][:FIX_HISTORY_MAX]
+                history = [old, *history]
+            if history or "fixHistory" in target:
+                target["fixHistory"] = history[:FIX_HISTORY_MAX]
             _fill_legacy_resolutions(latest)
             target["direction"] = direction
             target["fix"] = fix
@@ -210,6 +229,14 @@ def _reviewable_fix(issue: dict) -> dict | None:
         return {"direction": issue["direction"], "fix": issue["fix"]}
     if issue.get("direction") == "dismiss":
         return {"direction": "dismiss", "fix": None}
+    return None
+
+
+def _history_index(issue: dict, direction: str) -> int | None:
+    """fixHistory에서 그 방향의 가장 최근 수정안 위치. 없으면 None."""
+    for i, h in enumerate(issue.get("fixHistory") or []):
+        if h.get("direction") == direction and h.get("fix"):
+            return i
     return None
 
 

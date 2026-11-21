@@ -22,7 +22,7 @@ const EXPORTS = [
   "USE_SAMPLE", "api", "auth", "ApiError", "getJson", "reportErrorMessage", "fixErrorMessage",
   "requireLogin", "safeNextPage", "esc", "statusBadge", "formatDate", "githubLink", "githubAnchor", "markSuperseded", "issueStats",
   "bindIssueButtons",
-  "refreshStatus", "pushFixHistory", "statusNotice",
+  "refreshStatus", "pushFixHistory", "historyIndex", "statusNotice",
 ];
 
 function memoryStorage(initial = {}) {
@@ -186,6 +186,13 @@ test.describe("화면 표시 도우미", () => {
     // app.js는 다른 vm 컨텍스트라 객체 프로토타입이 달라서 JSON으로 비교한다
     assert.deepEqual(JSON.parse(JSON.stringify(out[0])), { direction: "doc", fix: { after: "v6" }, replacedAt: "2026-11-21T05:00:00Z" });
     assert.deepEqual([...out.map((h) => h.fix.after)], ["v6", "v1", "v2", "v3", "v4"]);
+  });
+
+  test.it("historyIndex: 이력에서 그 방향의 가장 최근 수정안 위치를 찾는다", () => {
+    const iss = { fixHistory: [{ direction: "doc", fix: { after: "a" } }, { direction: "code", fix: { diff: "1" } }, { direction: "code", fix: { diff: "2" } }] };
+    assert.equal(app.historyIndex(iss, "code"), 1);
+    assert.equal(app.historyIndex(iss, "doc"), 0);
+    assert.equal(app.historyIndex({}, "code"), -1);
   });
 
   test.it("pushFixHistory: 아직 수정안이 없으면 이력을 바꾸지 않는다", () => {

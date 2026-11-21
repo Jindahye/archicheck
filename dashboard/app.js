@@ -757,8 +757,12 @@ function bindIssueButtons(r) {
       syncCard();
       choice.classList.remove("error");
       const label = `${DIRECTION_LABEL[direction]}안`;
+      // 방향을 바꿀 때 이력에 그 방향 수정안이 있으면 서버가 AI 없이 되돌려 준다 (설계 문서 3.3 fixHistory)
+      const restore = !regenerate && direction !== "dismiss" && iss.direction !== direction && historyIndex(iss, direction) >= 0;
       if (direction === "dismiss") {
         choice.textContent = "처리하는 중입니다…";   // AI를 부르지 않아 금방 끝난다
+      } else if (restore) {
+        choice.textContent = `저장된 ${label}을 불러오는 중입니다…`;
       } else {
         choice.textContent = regenerate ? `${label}을 재분석하는 중입니다…` : `${label}을 만드는 중입니다…`;
         // 예전 수정안 대신 진행 표시를 보여 준다 (AI 응답에 10~30초 걸릴 수 있음)
@@ -767,6 +771,11 @@ function bindIssueButtons(r) {
       try {
         const result = await api.requestFix(r.id, iss.id, direction, { regenerate, feedback: feedback ? feedback.value : "" });
         // 서버와 같은 규칙으로 덮어쓰기 전 수정안을 이력에 남긴다 (3.3 fixHistory, 최신순 최대 5개)
+        if (restore) {
+          // 서버와 같게: 꺼낸 항목은 이력에서 빼고, 바뀌기 전 수정안을 앞에 넣는다
+          const index = historyIndex(iss, direction);
+          iss.fixHistory = (iss.fixHistory || []).filter((_, i) => i !== index);
+        }
         iss.fixHistory = pushFixHistory(iss, new Date().toISOString());
         iss.direction = result.direction ?? direction;
         iss.fix = result.fix ?? null;
@@ -778,7 +787,8 @@ function bindIssueButtons(r) {
         renderHistory(historyHost, iss);
         card.dataset.direction = iss.direction;
         buttons.forEach((b) => b.dataset.dir && b.setAttribute("aria-pressed", b.dataset.dir === iss.direction));
-        choice.textContent = regenerate ? `${label}을 재분석했습니다` : `${DIRECTION_LABEL[iss.direction]}으로 정했습니다`;
+        choice.textContent = regenerate ? `${label}을 재분석했습니다`
+          : restore ? `저장된 ${label}으로 바꿨습니다` : `${DIRECTION_LABEL[iss.direction]}으로 정했습니다`;
         showFix(iss, panel);
         if (regen) regen.hidden = !iss.fix;
         if (regenerate && feedback) { feedback.value = ""; regen.open = false; }
@@ -811,6 +821,11 @@ function bindIssueButtons(r) {
 
 // ===== 이전 수정안 (재분석·방향 전환 전 수정안, 접어 두고 펼쳐 본다) =====
 const FIX_HISTORY_MAX = 5;
+
+// 이력에서 그 방향의 가장 최근 수정안 위치 (없으면 -1)
+function historyIndex(iss, direction) {
+  return (iss.fixHistory || []).findIndex((h) => h.direction === direction && h.fix);
+}
 
 function pushFixHistory(iss, replacedAt) {
   const history = iss.fixHistory || [];

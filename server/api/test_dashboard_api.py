@@ -398,6 +398,55 @@ def test_fix_history_not_added_on_first_fix_or_failure(fix_client, store, sample
     assert "fixHistory" not in store.get(sample["id"])["issues"][0]
 
 
+def test_switching_back_reuses_fix_from_history_without_ai(fix_client, store, sample, github, generator):
+    """코드 ↔ 문서를 번갈아 골라도 이미 만든 방향은 AI를 다시 부르지 않는다."""
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})   # AI 1회
+    fix_client.post(fix_url(), json={"direction": "doc"})    # AI 1회, CODE_FIX → 이력
+    generator.calls.clear()
+    github.calls.clear()
+
+    r = fix_client.post(fix_url(), json={"direction": "code"})
+    assert r.json()["fix"] == CODE_FIX and generator.calls == [] and github.calls == []
+    issue = store.get(sample["id"])["issues"][0]
+    assert issue["direction"] == "code" and issue["fix"] == CODE_FIX
+    assert [h["direction"] for h in issue["fixHistory"]] == ["doc"]  # 꺼낸 code는 빠지고 doc이 들어감
+
+    r = fix_client.post(fix_url(), json={"direction": "doc"})
+    assert r.json()["fix"] == DOC_FIX and generator.calls == []
+    assert [h["direction"] for h in store.get(sample["id"])["issues"][0]["fixHistory"]] == ["code"]
+
+
+def test_switching_back_restores_most_recent_of_that_direction(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    generator.code_result = {"diff": "두 번째"}
+    fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})  # CODE_FIX → 이력
+    fix_client.post(fix_url(), json={"direction": "doc"})                       # 두 번째 → 이력
+    r = fix_client.post(fix_url(), json={"direction": "code"})
+    assert r.json()["fix"] == {"diff": "두 번째"}
+
+
+def test_restored_fix_is_not_resolved(fix_client, store, sample):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    fix_client.post(fix_url(), json={"direction": "doc"})
+    fix_client.put(f"/api/reports/{sample['id']}/issues/iss_1/resolution",
+                   json={"resolved": True, "reviewed": {"direction": "doc", "fix": DOC_FIX}})
+    r = fix_client.post(fix_url(), json={"direction": "code"})
+    assert r.json()["status"] == "done" and store.get(sample["id"])["issues"][0]["resolved"] is False
+
+
+def test_regenerate_ignores_history(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    fix_client.post(fix_url(), json={"direction": "doc"})
+    generator.calls.clear()
+    generator.code_result = {"diff": "새로"}
+    r = fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})
+    assert r.json()["fix"] == {"diff": "새로"} and [c[0] for c in generator.calls] == ["code"]
+
+
 # --- 불일치 아님 (dismiss) ---
 
 
