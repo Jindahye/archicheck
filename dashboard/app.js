@@ -522,14 +522,29 @@ function progressBlock(r) {
     </div>`;
 }
 
+// 분석 실패 종류(리포트 error, 설계 문서 3.3)별 안내. PR 코멘트(server/github/comment.py)와 같은 뜻으로 쓴다.
+const FAILURE_TITLE = {
+  no_design_doc: "설계 문서를 찾지 못했습니다",
+  github_error: "GitHub에서 PR 정보를 가져오지 못했습니다",
+  ai_error: "AI 분석 중 오류가 났습니다",
+  internal: "서버 오류로 분석하지 못했습니다",
+};
+const FAILURE_GUIDE = {
+  no_design_doc: "레포 루트에 <code>.archicheck.yml</code>을 두고 <code>design_docs:</code>에 설계 문서 경로를 적어 주세요. 경로가 실제 파일과 맞는지도 확인하세요. 커밋을 다시 올리면 새로 분석합니다.",
+  github_error: "GitHub 응답이 실패했습니다. 잠시 뒤 PR에 커밋을 다시 올리면 새로 분석합니다.",
+  ai_error: "Gemini 응답 지연이나 사용량 초과 등으로 분석하지 못했습니다. 잠시 뒤 PR에 커밋을 다시 올리면 새로 분석합니다.",
+  internal: "서버 담당자에게 리포트 ID를 알려 주세요. 원인은 서버 로그에 남아 있습니다.",
+  unknown: "설계 문서를 찾지 못했거나 AI 분석 중 오류가 났습니다. PR에 커밋을 다시 올리면 새로 분석합니다. 설계 문서를 못 찾은 경우에는 레포 루트의 <code>.archicheck.yml</code>에 설계 문서 경로를 적어 주세요.",
+};
+
 function statusNotice(r) {
   if (r.status === "analyzing") {
     return `<div class="notice analyzing">${icon("spinner")}<div><strong>분석 중입니다</strong>
       <p>설계 문서와 코드 변경을 비교하고 있습니다. 보통 1분 안에 끝나며, 끝나면 이 화면이 자동으로 바뀝니다.</p></div></div>`;
   }
   if (r.status === "failed") {
-    return `<div class="notice failed">${icon("alert")}<div><strong>분석하지 못했습니다</strong>
-      <p>설계 문서를 찾지 못했거나 AI 분석 중 오류(응답 지연, 사용량 초과 등)가 났습니다. PR에 커밋을 다시 올리면 새로 분석합니다. 설계 문서를 못 찾은 경우에는 레포 루트의 <code>.archicheck.yml</code>에 설계 문서 경로를 적어 주세요.</p></div></div>`;
+    return `<div class="notice failed">${icon("alert")}<div><strong>${FAILURE_TITLE[r.error] || "분석하지 못했습니다"}</strong>
+      <p>${FAILURE_GUIDE[r.error] || FAILURE_GUIDE.unknown}</p></div></div>`;
   }
   if (!r.issues || r.issues.length === 0) {
     return `<div class="notice ok">${icon("check")}<div><strong>설계와 일치합니다</strong>

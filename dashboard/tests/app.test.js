@@ -21,7 +21,7 @@ const SAMPLE_JS = fs.readFileSync(path.join(DASHBOARD, "sample-data.js"), "utf8"
 const EXPORTS = [
   "USE_SAMPLE", "api", "auth", "ApiError", "getJson", "reportErrorMessage", "fixErrorMessage",
   "requireLogin", "safeNextPage", "esc", "statusBadge", "formatDate", "githubLink", "githubAnchor", "markSuperseded", "issueStats",
-  "refreshStatus", "pushFixHistory",
+  "refreshStatus", "pushFixHistory", "statusNotice",
 ];
 
 function memoryStorage(initial = {}) {
@@ -188,6 +188,12 @@ test.describe("화면 표시 도우미", () => {
 
   test.it("pushFixHistory: 아직 수정안이 없으면 이력을 바꾸지 않는다", () => {
     assert.deepEqual([...app.pushFixHistory({ direction: null, fix: null }, "t")], []);
+  });
+
+  test.it("statusNotice: 분석 실패는 error 종류별 안내를 보여 주고, error가 없으면(예전 리포트) 두 가능성을 모두 안내한다", () => {
+    assert.match(app.statusNotice({ status: "failed", error: "no_design_doc" }), /설계 문서를 찾지 못했습니다[\s\S]*archicheck\.yml/);
+    assert.match(app.statusNotice({ status: "failed", error: "ai_error" }), /AI 분석 중 오류/);
+    assert.match(app.statusNotice({ status: "failed" }), /분석하지 못했습니다[\s\S]*AI 분석 중 오류/);
   });
 
   test.it("githubLink: 경로가 없으면 '-'를 보여 준다", () => {
