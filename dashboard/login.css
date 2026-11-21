@@ -1,0 +1,90 @@
+/* ArchiCheck 로그인 화면 전용 배치 (공통 색·카드·입력칸은 style.css)
+   왼쪽: 예시 대시보드 화면이 혼자 재생됨 / 오른쪽: 로그인 카드 + 이용 순서
+   예시 화면은 실제 대시보드와 같은 클래스(.report-row, .report-head, .issue, ⑤의 수정안 패널)로 그린다. */
+
+/* 2열: 왼쪽 예시가 카드 바로 앞까지 넓어지고, 두 열의 아래 끝이 맞도록 늘림 */
+.login-page {
+  min-height: 100vh; display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 24px;
+  padding: 16px 16px 40px clamp(24px, 5vw, 96px); align-items: stretch;
+}
+.login-side { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; gap: 16px; }
+.login-side > .login-card { box-shadow: 0 8px 28px rgba(0, 0, 0, .12); }
+.login-side > .login-guide { flex: 1; }
+
+/* ---------- 오른쪽 아래: 이용 순서 (예시가 지금 보여 주는 단계가 진해짐, 누르면 그 장면으로 이동) ---------- */
+.login-guide { padding: 16px 18px; display: grid; grid-template-rows: 1fr auto; gap: 10px; }
+/* 남는 높이는 네 단계가 똑같이 나눠 갖고, 단계 사이를 세로선으로 이어 흐름으로 보이게 */
+.guide-steps { list-style: none; margin: 0; padding: 0; display: grid; grid-auto-rows: minmax(min-content, 1fr); }
+.guide-steps li { position: relative; }
+.guide-steps li:not(:last-child)::after {
+  content: ""; position: absolute; left: 18px; top: 34px; bottom: -4px; width: 2px; border-radius: 2px;
+  background: var(--line); transition: background .3s;
+}
+.guide-steps li.done::after { background: var(--accent); }
+.guide-step {
+  width: 100%; font: inherit; text-align: left; display: grid; grid-template-columns: 22px 1fr; gap: 10px;
+  padding: 8px; border: none; border-radius: 8px; background: none; color: var(--ink-3); cursor: pointer;
+  transition: background .3s, color .3s;
+}
+.guide-step:hover { background: var(--accent-soft); color: var(--ink-2); }
+.guide-step:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.guide-step b {
+  position: relative; z-index: 1; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 12px; font-family: var(--font-mono); border: 1px solid var(--line); background: var(--paper); transition: all .3s;
+}
+.guide-step strong { display: block; font-size: var(--fs-sm); color: inherit; }
+.guide-step span { display: block; font-size: var(--fs-xs); line-height: 1.5; word-break: keep-all; }
+.guide-steps li.on .guide-step { background: var(--accent-soft); color: var(--ink); }
+.guide-steps li.on .guide-step b { background: var(--accent-strong); border-color: var(--accent-strong); color: #fff; }
+.guide-steps li.done .guide-step { color: var(--ink-2); }
+.guide-steps li.done .guide-step b { color: var(--accent); border-color: var(--accent); }
+.guide-note { margin: 0; font-size: var(--fs-xs); color: var(--ink-3); border-top: 1px solid var(--line-soft); padding-top: 10px; word-break: keep-all; }
+
+/* ---------- 왼쪽: 예시 화면 ---------- */
+.demo-area { grid-column: 1; grid-row: 1; padding-top: 40px; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+.demo-title { font-size: 32px; line-height: 1.3; margin: 0; letter-spacing: -0.02em; word-break: keep-all; max-width: 24em; }
+.demo-title em { font-style: normal; color: var(--accent); }
+.demo-window {
+  flex: 1; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
+  background: var(--paper); box-shadow: 0 16px 48px rgba(0, 0, 0, .14); user-select: none;
+}
+.demo-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--surface); border-bottom: 1px solid var(--line); font-size: var(--fs-xs); color: var(--ink-3); }
+.demo-bar i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); display: inline-block; }
+.demo-url {
+  margin-left: 8px; font-family: var(--font-mono); background: var(--paper); border: 1px solid var(--line-soft); border-radius: 6px;
+  padding: 2px 10px; flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+}
+.demo-tag { flex: none; font-weight: 700; font-size: 11px; color: var(--warn); background: var(--warn-bg); border: 1px solid currentColor; border-radius: 999px; padding: 1px 8px; }
+.demo-body {
+  flex: 1 0 auto; padding: 16px; display: grid; grid-auto-rows: max-content; gap: 10px; align-content: start;
+  height: clamp(380px, calc(100vh - 300px), 640px); overflow: hidden;
+}
+.demo-body .report-row { grid-template-columns: 4px 56px minmax(0, 1fr) 110px 170px 90px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); min-height: 56px; }
+.demo-body .issue { padding: 16px; gap: 12px; }
+.demo-body .issue h3 { font-size: var(--fs-md); }
+.demo-body .report-head { padding: 14px 16px; gap: 8px; }
+.demo-body .report-head h1 { font-size: var(--fs-lg); }
+.demo-list-head { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--fs-sm); color: var(--ink-2); padding: 0 2px; }
+.demo-list-head b { color: var(--ink); font-size: var(--fs-md); }
+.demo-hidden { display: none !important; }
+.demo-in { animation: demo-in .45s ease-out both; }
+@keyframes demo-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.demo-press { animation: demo-press .35s ease-out; }
+@keyframes demo-press { 50% { transform: scale(.94); } }
+@media (prefers-reduced-motion: reduce) { .demo-in, .demo-press { animation: none; } .demo-body .fix-loading .ico { animation: none; } }
+
+/* ---------- 좁은 화면 ---------- */
+@media (max-width: 1080px) {
+  .demo-body .report-row { grid-template-columns: 4px 56px minmax(0, 1fr) 110px 170px; }
+  .demo-body .report-row .time-cell { display: none; }
+}
+@media (max-width: 860px) {   /* 한 줄로 쌓기: 로그인 카드가 맨 위 */
+  .login-page { grid-template-columns: 1fr; padding: 16px; align-items: start; }
+  .login-side, .demo-area { grid-column: 1; grid-row: auto; }
+  .login-side > .login-card { max-width: none; }
+  .login-guide { display: none; }
+  .demo-area { padding-top: 0; }
+  .demo-title { font-size: 24px; }
+  .demo-body { height: 400px; }
+  .demo-body .report-row { grid-template-columns: 4px 1fr auto; grid-template-areas: "s pr st" "s t t" "s i i"; padding: 10px 12px 10px 0; }
+}
