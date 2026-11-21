@@ -4,6 +4,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
@@ -34,6 +35,12 @@ app.add_middleware(
 app.include_router(dashboard_router)
 # GitHub Webhook 수신 (POST /webhook/github, DESIGN.md 3.4). 라우터는 ②의 webhook_handler가 만든다.
 app.include_router(webhook_router)
+
+
+@app.get("/", include_in_schema=False)
+def root() -> RedirectResponse:
+    """서비스 첫 화면: 로그인·소개 화면으로 보낸다 (DESIGN.md 3.4)."""
+    return RedirectResponse("/dashboard/login.html")
 
 
 @app.get("/health")

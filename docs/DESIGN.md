@@ -26,6 +26,7 @@
 | v1.4 | 2026.11.21 | 윤정은, 진다혜 | 항목별 조치 완료·취소(PR #24): 3.3 `issues[].resolved`, `resolved` 상태 조건, 3.4 조치 완료 API. 불일치 아님은 바로 완료, 수정안을 새로 만들면 미완료로 되돌림. 4.1 테스트 수 |
 | v1.5 | 2026.11.21 | 진다혜 | 방향 전환 시 이전 수정안 재사용: 3.3 `fixHistory`, 3.4 수정안 API, 6장 해당 과제 완료 처리, 4.1 테스트 수 |
 | v1.6 | 2026.11.21 | 진다혜 | 3.1 같은 커밋 재수신 규칙 추가 (PR #25) |
+| v1.7 | 2026.11.21 | 진다혜 | 3.4 서비스 첫 화면: `/`를 로그인·소개 화면으로 이동, 인증 제외 목록, 4.1 테스트 수 |
 
 ## 1. 요구사항
 
@@ -360,6 +361,7 @@ classDiagram
 
 | 메서드 | 경로 | 인증 | 설명 |
 | --- | --- | --- | --- |
+| GET | `/` | 없음 | 서비스 첫 화면. 로그인·소개 화면(`/dashboard/login.html`)으로 이동 (`307`) |
 | GET | `/health` | 없음 | 서버 상태 확인. `{ "status": "ok" }` |
 | POST | `/webhook/github` | 서명 검증 | GitHub Webhook 수신. 서명이 틀리면 `401`, 정상이면 `202` 후 백그라운드 분석 (3.1) |
 | POST | `/api/login` | 없음 | 요청 본문 `{ "password": "..." }`. 맞으면 `200`과 세션 쿠키, 틀리면 `401` |
@@ -378,7 +380,7 @@ classDiagram
 - **선택 이유:** 대시보드 화면은 FastAPI가 같은 주소에서 제공하므로(2.1) 쿠키가 모든 요청에 자동으로 붙는다. PR 코멘트의 리포트 링크로 바로 들어와도, 로그인 후 원래 보던 페이지로 돌아갈 수 있다. HTTP 기본 인증은 로그인 화면을 만들 수 없고 로그아웃이 안 돼서 쓰지 않는다.
 - **서버 (③):** Starlette `SessionMiddleware`(`SESSION_SECRET`으로 서명)를 쓴다. 쿠키는 `HttpOnly`, `SameSite=Lax`로 설정한다. 비밀번호는 `hmac.compare_digest`로 `DASHBOARD_PASSWORD`와 비교한다. 세션이 없으면 표의 "세션" 항목은 `401`을 돌려준다.
 - **화면 (④):** API가 `401`을 주면 로그인 화면으로 보낸다. 이때 원래 주소를 기억해 두었다가 로그인 성공 후 그 주소로 돌아간다.
-- **인증 제외:** `/health`, `/webhook/github`(서명 검증으로 대신), `/api/login`, 로그인 화면 파일.
+- **인증 제외:** `/`(로그인 화면으로 이동만 함), `/health`, `/webhook/github`(서명 검증으로 대신), `/api/login`, 로그인 화면 파일.
 
 ### 3.5 설계 문서 탐색 규칙
 
@@ -459,7 +461,7 @@ archicheck/
 
 | 대상 | 실행 | 테스트 수 (2026.11.21) |
 | --- | --- | --- |
-| 서버 (`server/` 전체) | `pytest` | 175 |
+| 서버 (`server/` 전체) | `pytest` | 179 |
 | 대시보드 화면 (`dashboard/app.js`) | `node --test dashboard/tests/app.test.js` | 39 |
 | 수정안 패널 (`dashboard/fix-panel.js`) | `node --test dashboard/tests/fix-panel.test.js` | 11 |
 

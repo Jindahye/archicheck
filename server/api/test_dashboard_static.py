@@ -71,6 +71,14 @@ def test_assets_referenced_by_pages_served(client, path, content_type):
     assert content_type in r.headers["content-type"]
 
 
+def test_site_root_redirects_to_login(client):
+    """서비스 주소만 입력하면 로그인·소개 화면이 먼저 뜬다 (DESIGN.md 3.4)."""
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 307
+    assert r.headers["location"] == "/dashboard/login.html"
+    assert client.get("/").content == (DASHBOARD_DIR / "login.html").read_bytes()
+
+
 def test_dashboard_root_serves_index(client):
     r = client.get("/dashboard/")
     assert r.status_code == 200
