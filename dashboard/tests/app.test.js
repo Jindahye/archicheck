@@ -20,8 +20,9 @@ const SAMPLE_JS = fs.readFileSync(path.join(DASHBOARD, "sample-data.js"), "utf8"
 
 const EXPORTS = [
   "USE_SAMPLE", "api", "auth", "ApiError", "getJson", "reportErrorMessage", "fixErrorMessage",
-  "requireLogin", "safeNextPage", "esc", "statusBadge", "formatDate", "githubLink", "issueStats",
+  "requireLogin", "safeNextPage", "esc", "statusBadge", "formatDate", "githubLink", "githubAnchor", "markSuperseded", "issueStats",
   "bindIssueButtons",
+  "pushFixHistory",
 ];
 
 function memoryStorage(initial = {}) {
@@ -158,6 +159,38 @@ test.describe("화면 표시 도우미", () => {
     assert.match(html, />docs\/architecture\.md#인증 흐름</);
   });
 
+  test.it("githubAnchor: GitHub 제목 앵커 규칙대로 점·괄호를 지우고 공백을 -로 바꾼다", () => {
+    assert.equal(app.githubAnchor("3.2 서버 모듈 구조 (클래스 다이어그램)"), "32-서버-모듈-구조-클래스-다이어그램");
+    assert.equal(app.githubAnchor(" Webhook_Handler: 흐름 "), "webhook_handler-흐름");
+    assert.equal(app.githubAnchor("2.4 배포 구성"), "24-배포-구성");
+  });
+
+  test.it("markSuperseded: 같은 PR은 가장 최근 리포트만 현재로 두고 나머지를 이전 커밋으로 표시한다", () => {
+    const reports = [
+      { id: "old", repo: "o/r", pr: 20, createdAt: "2026-11-21T04:30:00Z" },
+      { id: "new", repo: "o/r", pr: 20, createdAt: "2026-11-21T04:40:00Z" },
+      { id: "other", repo: "o/r", pr: 21, createdAt: "2026-11-21T04:00:00Z" },
+      { id: "otherRepo", repo: "x/y", pr: 20, createdAt: "2026-11-21T04:00:00Z" },
+    ];
+    app.markSuperseded(reports);
+    assert.deepEqual(reports.map((r) => [r.id, r.superseded]), [
+      ["old", true], ["new", false], ["other", false], ["otherRepo", false],
+    ]);
+  });
+
+  test.it("pushFixHistory: 덮어쓰기 전 수정안을 최신순으로 앞에 넣고 5개까지만 둔다", () => {
+    const iss = { direction: "doc", fix: { after: "v6" }, fixHistory: [1, 2, 3, 4, 5].map((n) => ({ fix: { after: "v" + n } })) };
+    const out = app.pushFixHistory(iss, "2026-11-21T05:00:00Z");
+    assert.equal(out.length, 5);
+    // app.js는 다른 vm 컨텍스트라 객체 프로토타입이 달라서 JSON으로 비교한다
+    assert.deepEqual(JSON.parse(JSON.stringify(out[0])), { direction: "doc", fix: { after: "v6" }, replacedAt: "2026-11-21T05:00:00Z" });
+    assert.deepEqual([...out.map((h) => h.fix.after)], ["v6", "v1", "v2", "v3", "v4"]);
+  });
+
+  test.it("pushFixHistory: 아직 수정안이 없으면 이력을 바꾸지 않는다", () => {
+    assert.deepEqual([...app.pushFixHistory({ direction: null, fix: null }, "t")], []);
+  });
+
   test.it("githubLink: 경로가 없으면 '-'를 보여 준다", () => {
     assert.match(app.githubLink("owner/repo", "abc", null), />-</);
   });
@@ -252,6 +285,18 @@ test.describe("서버 API 연결", () => {
     assert.equal(env.requests[0].method, "POST");
     assert.deepEqual(JSON.parse(env.requests[0].body), { direction: "code" });
     assert.deepEqual(result, payload);
+  });
+
+  test.it("재분석: regenerate와 앞뒤 공백을 뺀 feedback을 함께 보낸다", async () => {
+    const { app, env } = loadApp({ fetch: async () => response(200, { direction: "doc", fix: {} }) });
+    await app.api.requestFix("rpt_1", "iss_1", "doc", { regenerate: true, feedback: "  실제 메서드 이름으로  " });
+    assert.deepEqual(JSON.parse(env.requests[0].body), { direction: "doc", regenerate: true, feedback: "실제 메서드 이름으로" });
+  });
+
+  test.it("재분석: feedback이 비어 있으면 regenerate만 보낸다", async () => {
+    const { app, env } = loadApp({ fetch: async () => response(200, { direction: "code", fix: {} }) });
+    await app.api.requestFix("rpt_1", "iss_1", "code", { regenerate: true, feedback: "   " });
+    assert.deepEqual(JSON.parse(env.requests[0].body), { direction: "code", regenerate: true });
   });
 
   test.it("서버 오류는 상태 코드를 담은 ApiError로 알려 준다", async () => {

@@ -126,3 +126,29 @@ def test_doc_revision_passes_when_validator_not_ready():
     client = FakeClient(rev())
     result = FixGenerator(client=client, validator=NotReadyValidator()).doc_revision(ISSUE, DOC)
     assert result["mermaid"] is not None
+
+
+# --- 재분석 요청 문구 (feedback) ---
+
+
+def test_code_fix_includes_feedback_when_given():
+    client = FakeClient(_CodeFixOutput(diff="d"))
+    FixGenerator(client=client, validator=FakeValidator()).code_fix(ISSUE, DOC, CODE, feedback="  새 클래스를 만들지 말 것 ")
+    assert "<user_feedback>\n새 클래스를 만들지 말 것\n</user_feedback>" in client.calls[0]["contents"]
+
+
+def test_no_feedback_block_when_empty():
+    client = FakeClient(_CodeFixOutput(diff="d"), _CodeFixOutput(diff="d"))
+    gen = FixGenerator(client=client, validator=FakeValidator())
+    gen.code_fix(ISSUE, DOC, CODE)
+    gen.code_fix(ISSUE, DOC, CODE, feedback="   ")
+    assert all("<user_feedback>" not in c["contents"] for c in client.calls)
+
+
+def test_doc_revision_keeps_feedback_on_mermaid_retry():
+    client = FakeClient(rev(), rev())
+    FixGenerator(client=client, validator=FakeValidator("Parse error", None)).doc_revision(
+        ISSUE, DOC, feedback="실제 메서드 이름을 쓸 것"
+    )
+    assert len(client.calls) == 2
+    assert all("<user_feedback>\n실제 메서드 이름을 쓸 것\n</user_feedback>" in c["contents"] for c in client.calls)

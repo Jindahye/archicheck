@@ -187,18 +187,21 @@ class FakeGitHub:
 class FakeFixGenerator:
     def __init__(self):
         self.calls = []
+        self.kwargs = []  # 재분석 feedback 전달 확인용
         self.code_result = dict(CODE_FIX)
         self.doc_result = dict(DOC_FIX)
         self.error = None
 
-    def code_fix(self, issue, design_doc, code):
+    def code_fix(self, issue, design_doc, code, **kwargs):
         self.calls.append(("code", issue, design_doc, code))
+        self.kwargs.append(kwargs)
         if self.error:
             raise self.error
         return self.code_result
 
-    def doc_revision(self, issue, design_doc):
+    def doc_revision(self, issue, design_doc, **kwargs):
         self.calls.append(("doc", issue, design_doc))
+        self.kwargs.append(kwargs)
         if self.error:
             raise self.error
         return self.doc_result
@@ -316,6 +319,82 @@ def test_fix_direction_change_regenerates_and_overwrites(fix_client, store, samp
     assert [c[0] for c in generator.calls] == ["code", "doc"]
     saved = store.get(sample["id"])["issues"][0]
     assert saved["direction"] == "doc" and saved["fix"] == DOC_FIX
+
+
+# --- 재분석 (regenerate, feedback) ---
+
+
+def test_fix_regenerate_same_direction_makes_new_fix(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    generator.code_result = {"diff": "새 결과"}
+
+    r = fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})
+    assert r.status_code == 200 and r.json() == {"direction": "code", "fix": {"diff": "새 결과"}, "status": "done"}
+    assert [c[0] for c in generator.calls] == ["code", "code"]
+    assert store.get(sample["id"])["issues"][0]["fix"] == {"diff": "새 결과"}
+
+
+def test_fix_regenerate_passes_feedback(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "doc"})
+    fix_client.post(fix_url(), json={"direction": "doc", "regenerate": True, "feedback": "  메서드는 실제 코드 기준으로  "})
+    assert generator.kwargs == [{}, {"feedback": "메서드는 실제 코드 기준으로"}]
+
+
+def test_fix_without_feedback_calls_generator_as_before(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code", "regenerate": True, "feedback": "   "})
+    assert generator.kwargs == [{}]
+
+
+def test_fix_feedback_too_long_422(fix_client, store, sample, generator):
+    store.save(sample)
+    r = fix_client.post(fix_url(), json={"direction": "code", "regenerate": True, "feedback": "가" * 501})
+    assert r.status_code == 422 and generator.calls == []
+
+
+def test_fix_regenerate_failure_keeps_previous_fix(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    generator.error = LLMCallError("gemini down")
+    r = fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})
+    assert r.status_code == 502
+    assert store.get(sample["id"])["issues"][0]["fix"] == CODE_FIX
+
+
+# --- 이전 수정안 보관 (fixHistory) ---
+
+
+def test_fix_history_keeps_replaced_fix_newest_first(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})                       # CODE_FIX
+    generator.code_result = {"diff": "두 번째"}
+    fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})   # CODE_FIX → 이력
+    fix_client.post(fix_url(), json={"direction": "doc"})                        # 두 번째 → 이력
+
+    issue = store.get(sample["id"])["issues"][0]
+    assert issue["fix"] == DOC_FIX
+    assert [(h["direction"], h["fix"]) for h in issue["fixHistory"]] == [("code", {"diff": "두 번째"}), ("code", CODE_FIX)]
+    assert all(h["replacedAt"] for h in issue["fixHistory"])
+
+
+def test_fix_history_is_limited(fix_client, store, sample, generator):
+    store.save(sample)
+    for n in range(8):
+        generator.code_result = {"diff": f"v{n}"}
+        fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})
+    history = store.get(sample["id"])["issues"][0]["fixHistory"]
+    assert [h["fix"]["diff"] for h in history] == ["v6", "v5", "v4", "v3", "v2"]
+
+
+def test_fix_history_not_added_on_first_fix_or_failure(fix_client, store, sample, generator):
+    store.save(sample)
+    fix_client.post(fix_url(), json={"direction": "code"})
+    assert "fixHistory" not in store.get(sample["id"])["issues"][0]
+    generator.error = LLMCallError("gemini down")
+    fix_client.post(fix_url(), json={"direction": "code", "regenerate": True})
+    assert "fixHistory" not in store.get(sample["id"])["issues"][0]
 
 
 def test_fix_generation_does_not_resolve_report(fix_client, store, sample):
