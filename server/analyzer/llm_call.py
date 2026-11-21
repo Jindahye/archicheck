@@ -35,6 +35,7 @@ def load_prompt(name: str) -> str:
 
 
 def model_name() -> str:
+    """사용할 Gemini 모델 이름. GEMINI_MODEL 환경 변수가 있으면 그 값을, 없으면 DEFAULT_MODEL을 쓴다."""
     return os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
 
 
