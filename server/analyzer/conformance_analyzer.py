@@ -38,6 +38,13 @@ class _AnalysisOutput(BaseModel):
     issues: list[_Issue]
 
 
+SUMMARY_PROMPT = (
+    "PR의 diff와 커밋 메시지를 읽고 실제 변경 내용을 요약한다. "
+    "commitMessage에는 커밋 메시지를, actualChanges에는 실제 변경을 한 줄씩, "
+    "unmentionedChanges에는 커밋 메시지에 없는 변경 수를 넣는다."
+)
+
+
 class ConformanceAnalyzer:
     def __init__(self, client=None):
         # client를 넘기지 않으면 GEMINI_API_KEY 환경 변수로 만든다. 테스트에서는 가짜 client를 넘긴다.
@@ -62,10 +69,18 @@ class ConformanceAnalyzer:
             raise AnalysisError("설계 문서가 없습니다. .archicheck.yml로 경로를 지정하세요.")
 
         try:
+            # 1단계: 설계 문서 없이 diff와 커밋 메시지만 보내 변경 요약을 먼저 받는다 (요약 정확도 향상).
+            pre_summary = call_structured(
+                self.client,
+                SUMMARY_PROMPT,
+                _build_summary_message(diff, commits),
+                _Summary,
+            )
+            # 2단계: 1단계 요약을 함께 넣어 설계 정합성을 분석한다.
             result = call_structured(
                 self.client,
                 self.system_prompt,
-                _build_user_message(diff, design_docs, commits),
+                _build_user_message(diff, design_docs, commits) + _summary_block(pre_summary),
                 _AnalysisOutput,
             )
         except LLMCallError as e:
@@ -89,3 +104,12 @@ def _build_user_message(diff: str, design_docs: list[dict], commits: list[str]) 
     )
     commit_text = "\n".join(f"- {c}" for c in commits) or "(커밋 메시지 없음)"
     return f"{docs}\n\n<commits>\n{commit_text}\n</commits>\n\n<diff>\n{diff}\n</diff>"
+
+
+def _build_summary_message(diff: str, commits: list[str]) -> str:
+    commit_text = "\n".join(f"- {c}" for c in commits) or "(커밋 메시지 없음)"
+    return f"<commits>\n{commit_text}\n</commits>\n\n<diff>\n{diff}\n</diff>"
+
+
+def _summary_block(summary: _Summary) -> str:
+    return f"\n\n<pre_summary>\n{summary.model_dump_json()}\n</pre_summary>"
