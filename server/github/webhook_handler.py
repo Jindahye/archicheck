@@ -93,7 +93,8 @@ class WebhookHandler:
         pr = self._pr_from_payload(payload)
         report = self._new_report(pr)
         existing = self.store.get(report["id"])
-        if existing and self._keep_existing(existing):
+        # PR을 다시 열면 그사이 바뀐 설계 문서로 다시 분석한다. 웹훅 재전송만 기존 리포트를 지킨다.
+        if payload.get("action") != "reopened" and existing and self._keep_existing(existing):
             # reopened·재전송처럼 같은 커밋이 다시 오면 기존 리포트(수정안 포함)를 그대로 둔다.
             return {"status": "ignored", "reason": "already analyzed", "reportId": report["id"]}
         self.store.save(report)  # status: analyzing
