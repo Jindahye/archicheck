@@ -302,19 +302,30 @@ def test_comment_omits_link_without_valid_base_url():
 
 
 # ---------- 같은 커밋 재수신 시 기존 리포트 보존 (리뷰 의견 1) ----------
-def test_same_commit_reopened_keeps_done_report():
-    """분석이 끝난 커밋이 reopened로 다시 와도 리포트(수정안 포함)를 덮어쓰지 않는다."""
+def test_same_commit_reopened_is_reanalyzed():
+    """PR을 다시 열면 분석이 끝난 커밋이라도 최신 설계 문서로 다시 분석한다."""
     tc, client, store = build(OkAnalyzer())
     assert post(tc, pr_payload()).status_code == 202
-    store.saved[-1]["issues"][0]["fix"] = {"diff": "kept"}  # 사용자가 만든 수정안
-    saved_before = len(store.saved)
 
     resp = post(tc, pr_payload("reopened"))
     assert resp.status_code == 202
+    assert resp.json() == {"status": "accepted", "reportId": "rpt_12_a1b2c3d"}
+    assert store.saved[-1]["status"] == "done"
+    assert len(client.comments) == 2
+
+
+def test_same_commit_redelivered_keeps_done_report():
+    """웹훅 재전송(같은 action)은 기존 리포트(수정안 포함)를 덮어쓰지 않는다."""
+    tc, client, store = build(OkAnalyzer())
+    assert post(tc, pr_payload()).status_code == 202
+    store.saved[-1]["issues"][0]["fix"] = {"diff": "kept"}
+    saved_before = len(store.saved)
+
+    resp = post(tc, pr_payload())
     assert resp.json() == {"status": "ignored", "reason": "already analyzed", "reportId": "rpt_12_a1b2c3d"}
-    assert len(store.saved) == saved_before  # 새로 저장하지 않음
+    assert len(store.saved) == saved_before
     assert store.saved[-1]["issues"][0]["fix"] == {"diff": "kept"}
-    assert len(client.comments) == 1  # 코멘트도 다시 달지 않음
+    assert len(client.comments) == 1
 
 
 def test_same_commit_after_failure_is_reanalyzed():
