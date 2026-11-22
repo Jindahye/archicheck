@@ -14,6 +14,15 @@ def report_url(base_url: str, report_id: str) -> str | None:
     return f"{base_url.rstrip('/')}{DASHBOARD_PATH}{report_id}"
 
 
+def _impact_line(item: dict) -> str:
+    """영향 범위 한 항목 → "- `파일` 심볼: 이유". 빠진 값은 건너뛴다."""
+    target = " ".join(x for x in (f"`{item['file']}`" if item.get("file") else "", item.get("symbol") or "") if x)
+    reason = item.get("reason") or ""
+    if target and reason:
+        return f"- {target}: {reason}"
+    return f"- {target or reason or '(내용 없음)'}"
+
+
 def format_report_comment(report: dict, base_url: str) -> str:
     """리포트 → 코멘트. 분석기 결과에 필드가 빠져 있어도 예외 없이 만든다."""
     lines = [f"🤖 **변경 분석 리포트** (PR #{report.get('pr', '?')})", ""]
@@ -37,10 +46,7 @@ def format_report_comment(report: dict, base_url: str) -> str:
     impact = [i for i in (report.get("impact") or []) if isinstance(i, dict)]
     if impact:
         lines.append("**② 영향 범위**")
-        for i in impact:
-            target = " ".join(x for x in (f"`{i['file']}`" if i.get("file") else "", i.get("symbol") or "") if x)
-            reason = i.get("reason") or ""
-            lines.append(f"- {target}: {reason}" if target and reason else f"- {target or reason or '(내용 없음)'}")
+        lines += [_impact_line(i) for i in impact]
         lines.append("")
 
     issues = [i for i in (report.get("issues") or []) if isinstance(i, dict)]
